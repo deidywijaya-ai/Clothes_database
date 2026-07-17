@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wardrobe rotation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --cream:#F6F1E7;
+    --paper:#FCFAF5;
+    --ink:#241F19;
+    --muted:#8A8073;
+    --line:#E4DCCB;
+    --clay:#A85C32;
+    --clay-dark:#7C4322;
+    --clay-tint:#F1E1D3;
+    --sage:#5C7A5C;
+    --sage-tint:#E4EBE1;
+    --rust:#B0472E;
+    --rust-tint:#F5DFD8;
+    --plum:#6B5B7E;
+    --plum-tint:#E9E4EE;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--cream);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:920px;margin:0 auto;padding:2.5rem 1.5rem 5rem;}
+  .hdr{display:flex;justify-content:space-between;align-items:flex-end;gap:1rem;margin-bottom:2rem;flex-wrap:wrap;}
+  h1{
+    font-family:'Fraunces',serif;
+    font-weight:600;
+    font-size:34px;
+    margin:0 0 4px;
+    letter-spacing:-0.01em;
+  }
+  .sub{color:var(--muted);font-size:14px;margin:0;}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:2rem;}
+  .stat{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:14px 16px;
+  }
+  .stat .n{font-family:'Fraunces',serif;font-size:26px;font-weight:600;line-height:1;}
+  .stat .l{font-size:12px;color:var(--muted);margin-top:6px;}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:1.25rem;}
+  .tab{
+    font-family:'Inter',sans-serif;
+    font-size:14px;
+    font-weight:500;
+    padding:10px 4px;
+    margin-right:20px;
+    background:none;
+    border:none;
+    color:var(--muted);
+    cursor:pointer;
+    border-bottom:2px solid transparent;
+    position:relative;
+    top:1px;
+  }
+  .tab.active{color:var(--ink);border-bottom-color:var(--clay);}
+  .controls{display:flex;gap:8px;margin-bottom:1.25rem;flex-wrap:wrap;align-items:center;}
+  .search{
+    flex:1;min-width:180px;
+    padding:9px 12px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--paper);
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    color:var(--ink);
+  }
+  .search:focus{outline:none;border-color:var(--clay);}
+  select{
+    padding:9px 10px;
+    border:1px solid var(--line);
+    border-radius:8px;
+    background:var(--paper);
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    color:var(--ink);
+  }
+  .sortline{font-size:12px;color:var(--muted);margin-bottom:1rem;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;}
+  .card{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:14px 16px 14px 14px;
+    position:relative;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+  }
+  .card::before{
+    content:'';
+    position:absolute;
+    left:0; top:14px; bottom:14px;
+    width:4px;
+    border-radius:0 3px 3px 0;
+    background:var(--tagcolor,#ccc);
+  }
+  .card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-left:6px;}
+  .swatch{
+    width:14px;height:14px;border-radius:50%;
+    border:1px solid rgba(0,0,0,0.15);
+    flex-shrink:0;
+    margin-top:3px;
+  }
+  .titles{flex:1;}
+  .brand{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;}
+  .name{font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin-top:1px;}
+  .meta{font-size:12px;color:var(--muted);padding-left:6px;}
+  code.tagcode{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+  .status-row{display:flex;justify-content:space-between;align-items:center;padding-left:6px;margin-top:2px;}
+  .pill{
+    font-size:11px;
+    font-weight:500;
+    padding:3px 9px;
+    border-radius:20px;
+  }
+  .pill.overdue{background:var(--rust-tint);color:var(--rust);}
+  .pill.recent{background:var(--sage-tint);color:var(--sage);}
+  .pill.reserve{background:var(--plum-tint);color:var(--plum);}
+  .btn{
+    font-family:'Inter',sans-serif;
+    font-size:12px;
+    font-weight:500;
+    padding:7px 12px;
+    border-radius:7px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    color:var(--ink);
+    cursor:pointer;
+  }
+  .btn:hover{background:var(--cream);}
+  .btn.primary{
+    background:var(--clay);
+    border-color:var(--clay);
+    color:#fff;
+  }
+  .btn.primary:hover{background:var(--clay-dark);}
+  .empty{
+    text-align:center;
+    padding:3rem 1rem;
+    color:var(--muted);
+    font-size:14px;
+  }
+  .footer-note{
+    margin-top:2.5rem;
+    padding-top:1.25rem;
+    border-top:1px solid var(--line);
+    font-size:12px;
+    color:var(--muted);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:1rem;
+    flex-wrap:wrap;
+  }
+  .linklike{
+    background:none;border:none;color:var(--clay);
+    font-size:12px;cursor:pointer;padding:0;
+    text-decoration:underline;
+    font-family:'Inter',sans-serif;
+  }
+  @media (max-width:600px){
+    .stats{grid-template-columns:repeat(2,1fr);}
+    h1{font-size:28px;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <div>
+      <h1>Wardrobe rotation</h1>
+      <p class="sub" id="todayline">Loading…</p>
+    </div>
+  </div>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="active" id="tab-active">Active rotation</button>
+    <button class="tab" data-tab="reserve" id="tab-reserve">Reserve (new)</button>
+  </div>
+
+  <div class="controls">
+    <input class="search" id="search" placeholder="Search brand, type, color, code…">
+    <select id="filterColor"><option value="">All colors</option></select>
+    <select id="filterBrand"><option value="">All brands</option></select>
+  </div>
+
+  <p class="sortline" id="sortline"></p>
+
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none;">No items match this filter.</div>
+
+  <div class="footer-note">
+    <span id="storagenote">Loading…</span>
+    <span style="display:flex; gap:14px;">
+      <button class="linklike" id="exportBtn">Export data</button>
+      <button class="linklike" id="importBtn">Import data</button>
+      <button class="linklike" id="resetBtn">Clear all wear history</button>
+    </span>
+  </div>
+  <input type="file" id="importFile" accept="application/json" style="display:none;">
+</div>
+
+<script>
+const ITEMS = [{"id": "item001", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH6348", "isNew": false}, {"id": "item002", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": false}, {"id": "item003", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Pink", "code": "DH3201", "isNew": false}, {"id": "item004", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyamide + elastane", "color": "Grey", "code": "DH5943", "isNew": false}, {"id": "item005", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH7362", "isNew": false}, {"id": "item006", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH7362", "isNew": false}, {"id": "item007", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH5522", "isNew": false}, {"id": "item008", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": false}, {"id": "item009", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Black", "code": "DH4777", "isNew": false}, {"id": "item010", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Black", "code": "PH6351", "isNew": false}, {"id": "item011", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH0542", "isNew": false}, {"id": "item012", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH3201", "isNew": false}, {"id": "item013", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + Polyester + Elastane", "color": "White", "code": "PH6232", "isNew": false}, {"id": "item014", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "White", "code": "PH6351", "isNew": false}, {"id": "item015", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Beige", "code": "PH2527", "isNew": false}, {"id": "item016", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH0124", "isNew": false}, {"id": "item017", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH9769", "isNew": false}, {"id": "item018", "brand": "Lacoste", "type": "T shirt", "material": "Cotton", "color": "Light Blue", "code": "TH0124", "isNew": false}, {"id": "item019", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Light Blue", "code": "DH8915", "isNew": false}, {"id": "item020", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH6238", "isNew": false}, {"id": "item021", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH2583", "isNew": false}, {"id": "item022", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH5522", "isNew": false}, {"id": "item023", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Grey", "code": "", "isNew": false}, {"id": "item024", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Grey", "code": "", "isNew": false}, {"id": "item025", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item026", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item027", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item028", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item029", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item030", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item031", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item032", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item033", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item034", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "", "isNew": false}, {"id": "item035", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item036", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item037", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item038", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH4777", "isNew": true}, {"id": "item039", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH8915", "isNew": true}, {"id": "item040", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Black", "code": "DH8915", "isNew": true}, {"id": "item041", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "White", "code": "DH8915", "isNew": true}, {"id": "item042", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH7362", "isNew": true}, {"id": "item043", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH0542", "isNew": true}, {"id": "item044", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH6348", "isNew": true}, {"id": "item045", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Black", "code": "PH2742", "isNew": true}, {"id": "item046", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Beige", "code": "PH1498", "isNew": true}, {"id": "item047", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": true}, {"id": "item048", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": true}, {"id": "item049", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH3201", "isNew": true}, {"id": "item050", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Grey", "code": "PH5522", "isNew": true}, {"id": "item051", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH5522", "isNew": true}, {"id": "item052", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Light Blue", "code": "PH2527", "isNew": true}, {"id": "item053", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "", "isNew": true}, {"id": "item054", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Beige", "code": "", "isNew": true}];
+
+const COLOR_HEX = {
+  'Navy':'#1F2D4A','Black':'#201F1D','Blue':'#2C5FA8','White':'#F5F3EC',
+  'Beige':'#C9A876','Grey':'#8B877D','Pink':'#D98CA0','Green':'#4F7A4A',
+  'Light Blue':'#7FA8CC','Red':'#B23B3B','Orange':'#D97736'
+};
+
+let wearlog = {};     // itemId -> ISO date string of last wear
+let activated = {};   // itemId -> true, if moved out of reserve
+let currentTab = 'active';
+let storageMode = 'memory'; // 'claude' | 'local' | 'memory'
+
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+
+function daysSince(iso){
+  const then = new Date(iso + 'T00:00:00');
+  const now = new Date(todayISO() + 'T00:00:00');
+  return Math.round((now - then) / 86400000);
+}
+
+// Storage layer: uses Claude's built-in storage when running inside a Claude
+// artifact viewer, falls back to the browser's own localStorage when opened
+// as a plain file (e.g. saved to your phone and opened directly), and falls
+// back to in-memory only if neither is available. Export/Import below is the
+// reliable way to carry data between those environments.
+async function storageGet(key){
+  if (window.storage && typeof window.storage.get === 'function'){
+    try {
+      const r = await withTimeout(window.storage.get(key, false), 2500);
+      storageMode = 'claude';
+      return r ? r.value : null;
+    } catch(e){ /* fall through */ }
+  }
+  try {
+    const v = localStorage.getItem('wardrobe:' + key);
+    storageMode = 'local';
+    return v;
+  } catch(e){
+    storageMode = 'memory';
+    return null;
+  }
+}
+
+async function storageSet(key, value){
+  if (window.storage && typeof window.storage.set === 'function'){
+    try {
+      await withTimeout(window.storage.set(key, value, false), 2500);
+      storageMode = 'claude';
+      return;
+    } catch(e){ /* fall through */ }
+  }
+  try {
+    localStorage.setItem('wardrobe:' + key, value);
+    storageMode = 'local';
+  } catch(e){
+    storageMode = 'memory';
+  }
+}
+
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+  ]);
+}
+
+async function loadState(){
+  const w = await storageGet('wearlog');
+  wearlog = w ? JSON.parse(w) : {};
+  const a = await storageGet('activated');
+  activated = a ? JSON.parse(a) : {};
+}
+
+async function saveWearlog(){ await storageSet('wearlog', JSON.stringify(wearlog)); }
+async function saveActivated(){ await storageSet('activated', JSON.stringify(activated)); }
+
+function updateStorageNote(){
+  const el = document.getElementById('storagenote');
+  if (storageMode === 'claude'){
+    el.textContent = 'Wear history is saved to your Claude account and only visible to you.';
+  } else if (storageMode === 'local'){
+    el.textContent = 'Wear history is saved in this browser only. Export it if you switch devices or browsers.';
+  } else {
+    el.textContent = 'This browser blocked local storage — your changes won\'t be saved. Export data after each session instead.';
+  }
+}
+
+function downloadJSON(filename, obj){
+  const blob = new Blob([JSON.stringify(obj, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function handleExport(){
+  downloadJSON('wardrobe-rotation-backup.json', {
+    exportedAt: new Date().toISOString(),
+    wearlog, activated
+  });
+}
+
+async function handleImportFile(file){
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (data.wearlog) wearlog = { ...wearlog, ...data.wearlog };
+    if (data.activated) activated = { ...activated, ...data.activated };
+    await saveWearlog();
+    await saveActivated();
+    updateStorageNote();
+    render();
+    alert('Import complete.');
+  } catch(e){
+    alert('Could not read that file. Make sure it\'s a backup exported from this tracker.');
+  }
+}
+
+function isReserve(item){
+  return item.isNew && !activated[item.id];
+}
+
+function populateFilters(){
+  const colors = [...new Set(ITEMS.map(i => i.color))].sort();
+  const brands = [...new Set(ITEMS.map(i => i.brand))].sort();
+  const cSel = document.getElementById('filterColor');
+  const bSel = document.getElementById('filterBrand');
+  colors.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; cSel.appendChild(o); });
+  brands.forEach(b => { const o = document.createElement('option'); o.value = b; o.textContent = b; bSel.appendChild(o); });
+}
+
+function renderStats(){
+  const total = ITEMS.length;
+  const reserveCount = ITEMS.filter(isReserve).length;
+  const activeCount = total - reserveCount;
+  const todayCount = Object.values(wearlog).filter(d => d === todayISO()).length;
+  const stats = [
+    {n: total, l:'Total items'},
+    {n: activeCount, l:'Active rotation'},
+    {n: reserveCount, l:'In reserve'},
+    {n: todayCount, l:'Worn today'}
+  ];
+  document.getElementById('stats').innerHTML = stats.map(s =>
+    `<div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`
+  ).join('');
+}
+
+function matchesFilters(item){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const color = document.getElementById('filterColor').value;
+  const brand = document.getElementById('filterBrand').value;
+  if (color && item.color !== color) return false;
+  if (brand && item.brand !== brand) return false;
+  if (q){
+    const hay = `${item.brand} ${item.type} ${item.color} ${item.material} ${item.code}`.toLowerCase();
+    if (!hay.includes(q)) return false;
+  }
+  return true;
+}
+
+function cardHTML(item){
+  const hex = COLOR_HEX[item.color] || '#ccc';
+  const last = wearlog[item.id];
+  let statusPill, sortKey;
+  if (isReserve(item)){
+    statusPill = `<span class="pill reserve">Reserve</span>`;
+  } else if (!last){
+    statusPill = `<span class="pill overdue">Not logged yet</span>`;
+  } else {
+    const d = daysSince(last);
+    if (d <= 14){
+      statusPill = `<span class="pill recent">Worn ${d === 0 ? 'today' : d + 'd ago'}</span>`;
+    } else {
+      statusPill = `<span class="pill overdue">${d}d since worn</span>`;
+    }
+  }
+
+  const actionBtn = isReserve(item)
+    ? `<button class="btn" data-action="activate" data-id="${item.id}">Activate</button>`
+    : `<button class="btn primary" data-action="wear" data-id="${item.id}">Mark worn</button>`;
+
+  return `
+  <div class="card" style="--tagcolor:${hex}">
+    <div class="card-top">
+      <span class="swatch" style="background:${hex}"></span>
+      <div class="titles">
+        <div class="brand">${item.brand}</div>
+        <div class="name">${item.color} ${item.type}</div>
+      </div>
+    </div>
+    <div class="meta">${item.material}${item.code ? ' &middot; <code class="tagcode">' + item.code + '</code>' : ''}</div>
+    <div class="status-row">
+      ${statusPill}
+      ${actionBtn}
+    </div>
+  </div>`;
+}
+
+function render(){
+  renderStats();
+
+  const pool = ITEMS.filter(i => currentTab === 'reserve' ? isReserve(i) : !isReserve(i));
+  const filtered = pool.filter(matchesFilters);
+
+  if (currentTab === 'active'){
+    filtered.sort((a,b) => {
+      const la = wearlog[a.id], lb = wearlog[b.id];
+      if (!la && !lb) return 0;
+      if (!la) return -1;
+      if (!lb) return 1;
+      return daysSince(lb) - daysSince(la);
+    });
+    document.getElementById('sortline').textContent = 'Sorted by most overdue for a wear first.';
+  } else {
+    document.getElementById('sortline').textContent = 'Items still held back as brand new.';
+  }
+
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  if (filtered.length === 0){
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    grid.innerHTML = filtered.map(cardHTML).join('');
+  }
+}
+
+function setTab(tab){
+  currentTab = tab;
+  document.getElementById('tab-active').classList.toggle('active', tab === 'active');
+  document.getElementById('tab-reserve').classList.toggle('active', tab === 'reserve');
+  render();
+}
+
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const id = btn.dataset.id;
+  if (btn.dataset.action === 'wear'){
+    wearlog[id] = todayISO();
+    await saveWearlog();
+    render();
+  } else if (btn.dataset.action === 'activate'){
+    activated[id] = true;
+    await saveActivated();
+    render();
+  }
+});
+
+document.getElementById('tab-active').addEventListener('click', () => setTab('active'));
+document.getElementById('tab-reserve').addEventListener('click', () => setTab('reserve'));
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('filterColor').addEventListener('change', render);
+document.getElementById('filterBrand').addEventListener('change', render);
+document.getElementById('resetBtn').addEventListener('click', async () => {
+  if (!confirm('Clear all logged wear dates? This cannot be undone.')) return;
+  wearlog = {};
+  await saveWearlog();
+  render();
+});
+
+document.getElementById('exportBtn').addEventListener('click', handleExport);
+document.getElementById('importBtn').addEventListener('click', () => {
+  document.getElementById('importFile').click();
+});
+document.getElementById('importFile').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) handleImportFile(file);
+  e.target.value = '';
+});
+
+(async function init(){
+  try {
+    document.getElementById('todayline').textContent =
+      new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    populateFilters();
+    try {
+      await withTimeout(loadState(), 3000);
+    } catch(e){
+      // Storage never responded in time — proceed with empty state rather
+      // than hanging, so the app is at least usable this session.
+      wearlog = {}; activated = {}; storageMode = 'memory';
+    }
+    updateStorageNote();
+    render();
+  } catch(err){
+    document.getElementById('todayline').textContent = 'Something went wrong loading this tracker.';
+    document.getElementById('stats').innerHTML =
+      `<div style="grid-column:1/-1; background:var(--rust-tint); color:var(--rust); border-radius:10px; padding:12px 14px; font-size:13px;">
+        Error: ${(err && err.message) ? err.message : String(err)}
+      </div>`;
+  }
+})();
+</script>
+</body>
+</html>
