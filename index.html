@@ -79,7 +79,7 @@
     color:var(--ink);
   }
   .search:focus{outline:none;border-color:var(--clay);}
-  select{
+  select, input[type="text"]{
     padding:9px 10px;
     border:1px solid var(--line);
     border-radius:8px;
@@ -88,7 +88,7 @@
     font-size:13px;
     color:var(--ink);
   }
-  .sortline{font-size:12px;color:var(--muted);margin-bottom:1rem;}
+  .sortline{font-size:12px;color:var(--muted);margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;}
   .card{
     background:var(--paper);
@@ -120,16 +120,18 @@
   .name{font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin-top:1px;}
   .meta{font-size:12px;color:var(--muted);padding-left:6px;}
   code.tagcode{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
-  .status-row{display:flex;justify-content:space-between;align-items:center;padding-left:6px;margin-top:2px;}
+  .status-row{display:flex;justify-content:space-between;align-items:center;padding-left:6px;margin-top:2px;flex-wrap:wrap;gap:6px;}
   .pill{
     font-size:11px;
     font-weight:500;
     padding:3px 9px;
     border-radius:20px;
+    white-space:nowrap;
   }
   .pill.overdue{background:var(--rust-tint);color:var(--rust);}
   .pill.recent{background:var(--sage-tint);color:var(--sage);}
   .pill.reserve{background:var(--plum-tint);color:var(--plum);}
+  .btn-row{display:flex;gap:6px;flex-wrap:wrap;padding-left:6px;}
   .btn{
     font-family:'Inter',sans-serif;
     font-size:12px;
@@ -148,6 +150,25 @@
     color:#fff;
   }
   .btn.primary:hover{background:var(--clay-dark);}
+  .btn.primary:disabled{background:var(--sage);border-color:var(--sage);cursor:default;opacity:0.85;}
+  .btn.ghost{border-color:transparent;background:none;color:var(--muted);padding:7px 8px;}
+  .btn.ghost:hover{color:var(--rust);background:var(--rust-tint);}
+  .btn.small{font-size:11px;padding:5px 9px;}
+  details.history{padding-left:6px;}
+  details.history summary{
+    font-size:11px;color:var(--muted);cursor:pointer;list-style:none;
+    display:flex;align-items:center;gap:4px;
+  }
+  details.history summary::-webkit-details-marker{display:none;}
+  details.history summary::before{content:'\25B8';font-size:10px;transition:transform .15s;}
+  details.history[open] summary::before{transform:rotate(90deg);}
+  .history-dates{
+    margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;
+  }
+  .history-dates span{
+    font-size:11px;color:var(--muted);background:var(--cream);
+    border:1px solid var(--line);border-radius:6px;padding:2px 7px;
+  }
   .empty{
     text-align:center;
     padding:3rem 1rem;
@@ -172,6 +193,25 @@
     text-decoration:underline;
     font-family:'Inter',sans-serif;
   }
+  .edit-form{display:flex;flex-direction:column;gap:8px;padding-left:6px;}
+  .edit-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .edit-grid input{width:100%;font-size:12px;padding:6px 8px;}
+  .edit-actions{display:flex;gap:6px;}
+  .add-panel{
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:12px;
+    padding:16px;
+    margin-bottom:1.25rem;
+    display:none;
+  }
+  .add-panel.open{display:block;}
+  .add-panel h3{font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin:0 0 12px;}
+  .add-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px;}
+  .add-grid label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;}
+  .add-grid input, .add-grid select{width:100%;}
+  .checkbox-row{display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px;}
+  .add-actions{display:flex;gap:8px;}
   @media (max-width:600px){
     .stats{grid-template-columns:repeat(2,1fr);}
     h1{font-size:28px;}
@@ -185,9 +225,45 @@
       <h1>Wardrobe rotation</h1>
       <p class="sub" id="todayline">Loading…</p>
     </div>
+    <button class="btn primary" id="toggleAddBtn">Add item</button>
   </div>
 
   <div class="stats" id="stats"></div>
+
+  <div class="add-panel" id="addPanel">
+    <h3>Add a new item</h3>
+    <div class="add-grid">
+      <div>
+        <label for="f-brand">Brand</label>
+        <input type="text" id="f-brand" placeholder="e.g. Lacoste">
+      </div>
+      <div>
+        <label for="f-type">Type</label>
+        <input type="text" id="f-type" placeholder="e.g. Regular fit polo">
+      </div>
+      <div>
+        <label for="f-color">Color</label>
+        <input type="text" id="f-color" placeholder="e.g. Navy" list="colorSuggestions">
+        <datalist id="colorSuggestions"></datalist>
+      </div>
+      <div>
+        <label for="f-material">Material</label>
+        <input type="text" id="f-material" placeholder="e.g. Cotton + elastane">
+      </div>
+      <div>
+        <label for="f-code">Item code (optional)</label>
+        <input type="text" id="f-code" placeholder="e.g. PH5522">
+      </div>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="f-isnew">
+      <label for="f-isnew">Keep as brand new (reserve)</label>
+    </div>
+    <div class="add-actions">
+      <button class="btn primary" id="saveItemBtn">Save item</button>
+      <button class="btn" id="cancelAddBtn">Cancel</button>
+    </div>
+  </div>
 
   <div class="tabs">
     <button class="tab active" data-tab="active" id="tab-active">Active rotation</button>
@@ -198,9 +274,17 @@
     <input class="search" id="search" placeholder="Search brand, type, color, code…">
     <select id="filterColor"><option value="">All colors</option></select>
     <select id="filterBrand"><option value="">All brands</option></select>
+    <select id="sortMode">
+      <option value="overdue">Sort: most overdue</option>
+      <option value="last-worn">Sort: last worn</option>
+      <option value="most-worn">Sort: most worn</option>
+      <option value="least-worn">Sort: least worn</option>
+    </select>
   </div>
 
-  <p class="sortline" id="sortline"></p>
+  <p class="sortline">
+    <span id="sortlinetext"></span>
+  </p>
 
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none;">No items match this filter.</div>
@@ -217,7 +301,7 @@
 </div>
 
 <script>
-const ITEMS = [{"id": "item001", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH6348", "isNew": false}, {"id": "item002", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": false}, {"id": "item003", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Pink", "code": "DH3201", "isNew": false}, {"id": "item004", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyamide + elastane", "color": "Grey", "code": "DH5943", "isNew": false}, {"id": "item005", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH7362", "isNew": false}, {"id": "item006", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH7362", "isNew": false}, {"id": "item007", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH5522", "isNew": false}, {"id": "item008", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": false}, {"id": "item009", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Black", "code": "DH4777", "isNew": false}, {"id": "item010", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Black", "code": "PH6351", "isNew": false}, {"id": "item011", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH0542", "isNew": false}, {"id": "item012", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH3201", "isNew": false}, {"id": "item013", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + Polyester + Elastane", "color": "White", "code": "PH6232", "isNew": false}, {"id": "item014", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "White", "code": "PH6351", "isNew": false}, {"id": "item015", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Beige", "code": "PH2527", "isNew": false}, {"id": "item016", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH0124", "isNew": false}, {"id": "item017", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH9769", "isNew": false}, {"id": "item018", "brand": "Lacoste", "type": "T shirt", "material": "Cotton", "color": "Light Blue", "code": "TH0124", "isNew": false}, {"id": "item019", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Light Blue", "code": "DH8915", "isNew": false}, {"id": "item020", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH6238", "isNew": false}, {"id": "item021", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH2583", "isNew": false}, {"id": "item022", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH5522", "isNew": false}, {"id": "item023", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Grey", "code": "", "isNew": false}, {"id": "item024", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Grey", "code": "", "isNew": false}, {"id": "item025", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item026", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item027", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item028", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "", "isNew": false}, {"id": "item029", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item030", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item031", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item032", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item033", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item034", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "", "isNew": false}, {"id": "item035", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item036", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item037", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item038", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH4777", "isNew": true}, {"id": "item039", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH8915", "isNew": true}, {"id": "item040", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Black", "code": "DH8915", "isNew": true}, {"id": "item041", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "White", "code": "DH8915", "isNew": true}, {"id": "item042", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH7362", "isNew": true}, {"id": "item043", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH0542", "isNew": true}, {"id": "item044", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH6348", "isNew": true}, {"id": "item045", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Black", "code": "PH2742", "isNew": true}, {"id": "item046", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Beige", "code": "PH1498", "isNew": true}, {"id": "item047", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": true}, {"id": "item048", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": true}, {"id": "item049", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH3201", "isNew": true}, {"id": "item050", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Grey", "code": "PH5522", "isNew": true}, {"id": "item051", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH5522", "isNew": true}, {"id": "item052", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Light Blue", "code": "PH2527", "isNew": true}, {"id": "item053", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "", "isNew": true}, {"id": "item054", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Beige", "code": "", "isNew": true}];
+const BASE_ITEMS = [{"id": "item001", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH6348", "isNew": false}, {"id": "item002", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": false}, {"id": "item003", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Pink", "code": "DH3201", "isNew": false}, {"id": "item004", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyamide + elastane", "color": "Grey", "code": "DH5943", "isNew": false}, {"id": "item005", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH7362", "isNew": false}, {"id": "item006", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH7362", "isNew": false}, {"id": "item007", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH5522", "isNew": false}, {"id": "item008", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": false}, {"id": "item009", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Black", "code": "DH4777", "isNew": false}, {"id": "item010", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Black", "code": "PH6351", "isNew": false}, {"id": "item011", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH1498", "isNew": false}, {"id": "item012", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH3201", "isNew": false}, {"id": "item013", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + Polyester + Elastane", "color": "White", "code": "PH6232", "isNew": false}, {"id": "item014", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "White", "code": "PH6351", "isNew": false}, {"id": "item015", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Beige", "code": "PH2527", "isNew": false}, {"id": "item016", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH0124", "isNew": false}, {"id": "item017", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH9769", "isNew": false}, {"id": "item018", "brand": "Lacoste", "type": "T shirt", "material": "Cotton", "color": "Light Blue", "code": "TH0124", "isNew": false}, {"id": "item019", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Light Blue", "code": "DH8915", "isNew": false}, {"id": "item020", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH6238", "isNew": false}, {"id": "item021", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH2583", "isNew": false}, {"id": "item022", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH5522", "isNew": false}, {"id": "item100", "brand": "Lacoste", "type": "Regular fit long sleeve shirt", "material": "Cotton", "color": "Blue", "code": "CH6273", "isNew": false}, {"id": "item023", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Grey", "code": "", "isNew": false}, {"id": "item024", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Grey", "code": "Black sablon AX", "isNew": false}, {"id": "item025", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Black", "code": "Super baggy", "isNew": false}, {"id": "item026", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "A|X", "isNew": false}, {"id": "item027", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "Armani Exchange", "isNew": false}, {"id": "item028", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "Lost in Sounds", "isNew": false}, {"id": "item101", "brand": "AX", "type": "Slim Fit T Shirt", "material": "Cotton", "color": "Navy", "code": "AX at top right", "isNew": false}, {"id": "item102", "brand": "AX", "type": "Regular Fit T Shirt", "material": "Cotton", "color": "Navy", "code": "Baggy", "isNew": false}, {"id": "item031", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item032", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "Armani Exchange", "isNew": false}, {"id": "item033", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "Lost in Sounds", "isNew": false}, {"id": "item034", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "Unclear AX words", "isNew": false}, {"id": "item035", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "Sky blue buttons", "isNew": false}, {"id": "item036", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "Gucci like", "isNew": false}, {"id": "item037", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item038", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH4777", "isNew": true}, {"id": "item039", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH8915", "isNew": true}, {"id": "item040", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Black", "code": "DH8915", "isNew": true}, {"id": "item041", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "White", "code": "DH8915", "isNew": true}, {"id": "item042", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH7362", "isNew": true}, {"id": "item043", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH0542", "isNew": true}, {"id": "item044", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH6348", "isNew": true}, {"id": "item045", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Black", "code": "PH2742", "isNew": true}, {"id": "item046", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Beige", "code": "PH1498", "isNew": true}, {"id": "item047", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": true}, {"id": "item048", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": true}, {"id": "item049", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH3201", "isNew": true}, {"id": "item050", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Grey", "code": "PH5522", "isNew": true}, {"id": "item051", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH5522", "isNew": true}, {"id": "item052", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Light Blue", "code": "PH2527", "isNew": true}, {"id": "item103", "brand": "Lacoste", "type": "Regular fit long sleeve shirt", "material": "Cotton", "color": "White", "code": "CH6273", "isNew": true}, {"id": "item104", "brand": "Lacoste", "type": "Slim fit long sleeve shirt", "material": "Cotton + polyester", "color": "Navy", "code": "CH8552", "isNew": true}, {"id": "item105", "brand": "Lacoste", "type": "Slim fit long sleeve shirt", "material": "Cotton + polyester", "color": "Light Blue", "code": "CH8552", "isNew": true}, {"id": "item106", "brand": "Lacoste", "type": "Regular fit long sleeve polo", "material": "Modal + elastane", "color": "Light Brown", "code": "DH0760", "isNew": true}, {"id": "item053", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "Lost in Sounds", "isNew": true}, {"id": "item054", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Beige", "code": "", "isNew": true}];
 
 const COLOR_HEX = {
   'Navy':'#1F2D4A','Black':'#201F1D','Blue':'#2C5FA8','White':'#F5F3EC',
@@ -225,9 +309,14 @@ const COLOR_HEX = {
   'Light Blue':'#7FA8CC','Red':'#B23B3B','Orange':'#D97736'
 };
 
-let wearlog = {};     // itemId -> ISO date string of last wear
-let activated = {};   // itemId -> true, if moved out of reserve
+let wearlog = {};      // itemId -> array of ISO date strings, oldest first
+let activated = {};    // itemId -> true, if moved out of reserve
+let customItems = [];  // user-added items
+let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom)
+let overrides = {};    // itemId -> partial {brand,type,material,color,code} edits
 let currentTab = 'active';
+let sortMode = 'overdue'; // 'overdue' | 'last-worn' | 'most-worn' | 'least-worn'
+let editingId = null;  // id of item currently being edited inline, or null
 let storageMode = 'memory'; // 'claude' | 'local' | 'memory'
 
 function todayISO(){ return new Date().toISOString().slice(0,10); }
@@ -238,11 +327,23 @@ function daysSince(iso){
   return Math.round((now - then) / 86400000);
 }
 
+function formatDate(iso){
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+}
+
 // Storage layer: uses Claude's built-in storage when running inside a Claude
 // artifact viewer, falls back to the browser's own localStorage when opened
-// as a plain file (e.g. saved to your phone and opened directly), and falls
-// back to in-memory only if neither is available. Export/Import below is the
-// reliable way to carry data between those environments.
+// as a plain file or hosted webpage, and falls back to in-memory only if
+// neither is available. Export/Import is the reliable way to carry data
+// between those environments.
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+  ]);
+}
+
 async function storageGet(key){
   if (window.storage && typeof window.storage.get === 'function'){
     try {
@@ -277,22 +378,28 @@ async function storageSet(key, value){
   }
 }
 
-function withTimeout(promise, ms){
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
-  ]);
-}
-
 async function loadState(){
   const w = await storageGet('wearlog');
   wearlog = w ? JSON.parse(w) : {};
+  // migrate legacy format where wearlog[id] was a single date string
+  Object.keys(wearlog).forEach(id => {
+    if (typeof wearlog[id] === 'string') wearlog[id] = [wearlog[id]];
+  });
   const a = await storageGet('activated');
   activated = a ? JSON.parse(a) : {};
+  const c = await storageGet('customItems');
+  customItems = c ? JSON.parse(c) : [];
+  const d = await storageGet('deletedIds');
+  deletedIds = d ? JSON.parse(d) : {};
+  const ov = await storageGet('overrides');
+  overrides = ov ? JSON.parse(ov) : {};
 }
 
 async function saveWearlog(){ await storageSet('wearlog', JSON.stringify(wearlog)); }
 async function saveActivated(){ await storageSet('activated', JSON.stringify(activated)); }
+async function saveCustomItems(){ await storageSet('customItems', JSON.stringify(customItems)); }
+async function saveDeletedIds(){ await storageSet('deletedIds', JSON.stringify(deletedIds)); }
+async function saveOverrides(){ await storageSet('overrides', JSON.stringify(overrides)); }
 
 function updateStorageNote(){
   const el = document.getElementById('storagenote');
@@ -317,7 +424,7 @@ function downloadJSON(filename, obj){
 async function handleExport(){
   downloadJSON('wardrobe-rotation-backup.json', {
     exportedAt: new Date().toISOString(),
-    wearlog, activated
+    wearlog, activated, customItems, deletedIds, overrides
   });
 }
 
@@ -327,8 +434,13 @@ async function handleImportFile(file){
     const data = JSON.parse(text);
     if (data.wearlog) wearlog = { ...wearlog, ...data.wearlog };
     if (data.activated) activated = { ...activated, ...data.activated };
-    await saveWearlog();
-    await saveActivated();
+    if (data.customItems) {
+      const existingIds = new Set(customItems.map(i => i.id));
+      data.customItems.forEach(i => { if (!existingIds.has(i.id)) customItems.push(i); });
+    }
+    if (data.deletedIds) deletedIds = { ...deletedIds, ...data.deletedIds };
+    if (data.overrides) overrides = { ...overrides, ...data.overrides };
+    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), saveOverrides()]);
     updateStorageNote();
     render();
     alert('Import complete.');
@@ -337,24 +449,39 @@ async function handleImportFile(file){
   }
 }
 
+function getAllItems(){
+  return BASE_ITEMS.concat(customItems)
+    .filter(i => !deletedIds[i.id])
+    .map(i => overrides[i.id] ? { ...i, ...overrides[i.id] } : i);
+}
+
 function isReserve(item){
   return item.isNew && !activated[item.id];
 }
 
 function populateFilters(){
-  const colors = [...new Set(ITEMS.map(i => i.color))].sort();
-  const brands = [...new Set(ITEMS.map(i => i.brand))].sort();
+  const items = getAllItems();
+  const colors = [...new Set(items.map(i => i.color))].sort();
+  const brands = [...new Set(items.map(i => i.brand))].sort();
   const cSel = document.getElementById('filterColor');
   const bSel = document.getElementById('filterBrand');
-  colors.forEach(c => { const o = document.createElement('option'); o.value = c; o.textContent = c; cSel.appendChild(o); });
-  brands.forEach(b => { const o = document.createElement('option'); o.value = b; o.textContent = b; bSel.appendChild(o); });
+  const dl = document.getElementById('colorSuggestions');
+  cSel.innerHTML = '<option value="">All colors</option>';
+  bSel.innerHTML = '<option value="">All brands</option>';
+  dl.innerHTML = '';
+  colors.forEach(c => {
+    cSel.appendChild(new Option(c, c));
+    dl.appendChild(new Option(c, c));
+  });
+  brands.forEach(b => bSel.appendChild(new Option(b, b)));
 }
 
 function renderStats(){
-  const total = ITEMS.length;
-  const reserveCount = ITEMS.filter(isReserve).length;
+  const items = getAllItems();
+  const total = items.length;
+  const reserveCount = items.filter(isReserve).length;
   const activeCount = total - reserveCount;
-  const todayCount = Object.values(wearlog).filter(d => d === todayISO()).length;
+  const todayCount = Object.values(wearlog).filter(dates => dates.length && dates[dates.length - 1] === todayISO()).length;
   const stats = [
     {n: total, l:'Total items'},
     {n: activeCount, l:'Active rotation'},
@@ -379,10 +506,43 @@ function matchesFilters(item){
   return true;
 }
 
+function escapeAttr(s){
+  return String(s == null ? '' : s).replace(/"/g, '&quot;');
+}
+
+function editFormHTML(item){
+  return `
+  <div class="card" style="--tagcolor:${COLOR_HEX[item.color] || '#ccc'}">
+    <div class="edit-form">
+      <div class="edit-grid">
+        <div><label style="font-size:11px;color:var(--muted);">Brand</label>
+          <input type="text" id="edit-brand-${item.id}" value="${escapeAttr(item.brand)}"></div>
+        <div><label style="font-size:11px;color:var(--muted);">Type</label>
+          <input type="text" id="edit-type-${item.id}" value="${escapeAttr(item.type)}"></div>
+        <div><label style="font-size:11px;color:var(--muted);">Color</label>
+          <input type="text" id="edit-color-${item.id}" value="${escapeAttr(item.color)}"></div>
+        <div><label style="font-size:11px;color:var(--muted);">Material</label>
+          <input type="text" id="edit-material-${item.id}" value="${escapeAttr(item.material)}"></div>
+        <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Item code</label>
+          <input type="text" id="edit-code-${item.id}" value="${escapeAttr(item.code)}"></div>
+      </div>
+      <div class="edit-actions">
+        <button class="btn primary small" data-action="save-edit" data-id="${item.id}">Save</button>
+        <button class="btn small" data-action="cancel-edit" data-id="${item.id}">Cancel</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function cardHTML(item){
+  if (editingId === item.id) return editFormHTML(item);
+
   const hex = COLOR_HEX[item.color] || '#ccc';
-  const last = wearlog[item.id];
-  let statusPill, sortKey;
+  const dates = wearlog[item.id] || [];
+  const count = dates.length;
+  const last = count ? dates[count - 1] : null;
+
+  let statusPill;
   if (isReserve(item)){
     statusPill = `<span class="pill reserve">Reserve</span>`;
   } else if (!last){
@@ -396,9 +556,24 @@ function cardHTML(item){
     }
   }
 
-  const actionBtn = isReserve(item)
-    ? `<button class="btn" data-action="activate" data-id="${item.id}">Activate</button>`
-    : `<button class="btn primary" data-action="wear" data-id="${item.id}">Mark worn</button>`;
+  const wornToday = last === todayISO();
+  const wearBtn = isReserve(item)
+    ? `<button class="btn primary" data-action="activate" data-id="${item.id}">Activate</button>`
+    : `<button class="btn primary" data-action="wear" data-id="${item.id}" ${wornToday ? 'disabled' : ''}>${wornToday ? 'Worn today' : 'Mark worn'}</button>`;
+
+  const undoBtn = count
+    ? `<button class="btn small" data-action="undo" data-id="${item.id}">Undo last</button>`
+    : '';
+
+  const editBtn = `<button class="btn small" data-action="edit" data-id="${item.id}">Edit</button>`;
+  const deleteBtn = `<button class="btn ghost small" data-action="delete" data-id="${item.id}" title="Delete item" aria-label="Delete item">Delete</button>`;
+
+  const historyBlock = count
+    ? `<details class="history">
+         <summary>Worn ${count} time${count === 1 ? '' : 's'}</summary>
+         <div class="history-dates">${dates.slice().reverse().map(d => `<span>${formatDate(d)}</span>`).join('')}</div>
+       </details>`
+    : `<p class="meta" style="padding-left:6px;margin:0;">Worn 0 times</p>`;
 
   return `
   <div class="card" style="--tagcolor:${hex}">
@@ -410,9 +585,15 @@ function cardHTML(item){
       </div>
     </div>
     <div class="meta">${item.material}${item.code ? ' &middot; <code class="tagcode">' + item.code + '</code>' : ''}</div>
+    ${historyBlock}
     <div class="status-row">
       ${statusPill}
-      ${actionBtn}
+      <div class="btn-row">
+        ${wearBtn}
+        ${undoBtn}
+        ${editBtn}
+        ${deleteBtn}
+      </div>
     </div>
   </div>`;
 }
@@ -420,20 +601,41 @@ function cardHTML(item){
 function render(){
   renderStats();
 
-  const pool = ITEMS.filter(i => currentTab === 'reserve' ? isReserve(i) : !isReserve(i));
+  const items = getAllItems();
+  const pool = items.filter(i => currentTab === 'reserve' ? isReserve(i) : !isReserve(i));
   const filtered = pool.filter(matchesFilters);
 
+  const lastWorn = (id) => { const d = wearlog[id]; return d && d.length ? d[d.length - 1] : null; };
+  const wearCount = (id) => (wearlog[id] || []).length;
+
   if (currentTab === 'active'){
-    filtered.sort((a,b) => {
-      const la = wearlog[a.id], lb = wearlog[b.id];
-      if (!la && !lb) return 0;
-      if (!la) return -1;
-      if (!lb) return 1;
-      return daysSince(lb) - daysSince(la);
-    });
-    document.getElementById('sortline').textContent = 'Sorted by most overdue for a wear first.';
+    if (sortMode === 'most-worn'){
+      filtered.sort((a,b) => wearCount(b.id) - wearCount(a.id));
+      document.getElementById('sortlinetext').textContent = 'Sorted by most worn first.';
+    } else if (sortMode === 'least-worn'){
+      filtered.sort((a,b) => wearCount(a.id) - wearCount(b.id));
+      document.getElementById('sortlinetext').textContent = 'Sorted by least worn first.';
+    } else if (sortMode === 'last-worn'){
+      filtered.sort((a,b) => {
+        const la = lastWorn(a.id), lb = lastWorn(b.id);
+        if (!la && !lb) return 0;
+        if (!la) return 1;
+        if (!lb) return -1;
+        return daysSince(la) - daysSince(lb);
+      });
+      document.getElementById('sortlinetext').textContent = 'Sorted by most recently worn first.';
+    } else {
+      filtered.sort((a,b) => {
+        const la = lastWorn(a.id), lb = lastWorn(b.id);
+        if (!la && !lb) return 0;
+        if (!la) return -1;
+        if (!lb) return 1;
+        return daysSince(lb) - daysSince(la);
+      });
+      document.getElementById('sortlinetext').textContent = 'Sorted by most overdue for a wear first.';
+    }
   } else {
-    document.getElementById('sortline').textContent = 'Items still held back as brand new.';
+    document.getElementById('sortlinetext').textContent = 'Items still held back as brand new.';
   }
 
   const grid = document.getElementById('grid');
@@ -458,13 +660,58 @@ document.addEventListener('click', async (e) => {
   const btn = e.target.closest('button[data-action]');
   if (!btn) return;
   const id = btn.dataset.id;
-  if (btn.dataset.action === 'wear'){
-    wearlog[id] = todayISO();
-    await saveWearlog();
-    render();
-  } else if (btn.dataset.action === 'activate'){
+  const action = btn.dataset.action;
+
+  if (action === 'wear'){
+    const today = todayISO();
+    if (!wearlog[id]) wearlog[id] = [];
+    if (wearlog[id][wearlog[id].length - 1] !== today){
+      wearlog[id].push(today);
+      await saveWearlog();
+      render();
+    }
+  } else if (action === 'undo'){
+    if (wearlog[id] && wearlog[id].length){
+      const removed = wearlog[id].pop();
+      await saveWearlog();
+      render();
+    }
+  } else if (action === 'activate'){
     activated[id] = true;
     await saveActivated();
+    render();
+  } else if (action === 'edit'){
+    editingId = id;
+    render();
+  } else if (action === 'cancel-edit'){
+    editingId = null;
+    render();
+  } else if (action === 'save-edit'){
+    const brand = document.getElementById(`edit-brand-${id}`).value.trim();
+    const type = document.getElementById(`edit-type-${id}`).value.trim();
+    const color = document.getElementById(`edit-color-${id}`).value.trim();
+    const material = document.getElementById(`edit-material-${id}`).value.trim();
+    const code = document.getElementById(`edit-code-${id}`).value.trim();
+    if (!brand || !type || !color){
+      alert('Brand, type, and color can\'t be empty.');
+      return;
+    }
+    overrides[id] = { brand, type, color, material: material || 'Unspecified', code };
+    await saveOverrides();
+    editingId = null;
+    populateFilters();
+    render();
+  } else if (action === 'delete'){
+    const items = getAllItems();
+    const item = items.find(i => i.id === id);
+    const label = item ? `${item.brand} ${item.color} ${item.type}` : 'this item';
+    if (!confirm(`Delete ${label} from your inventory? Its wear history will also be removed. This can't be undone.`)) return;
+    deletedIds[id] = true;
+    delete wearlog[id];
+    delete activated[id];
+    delete overrides[id];
+    await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides()]);
+    populateFilters();
     render();
   }
 });
@@ -474,6 +721,10 @@ document.getElementById('tab-reserve').addEventListener('click', () => setTab('r
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('filterColor').addEventListener('change', render);
 document.getElementById('filterBrand').addEventListener('change', render);
+document.getElementById('sortMode').addEventListener('change', (e) => {
+  sortMode = e.target.value;
+  render();
+});
 document.getElementById('resetBtn').addEventListener('click', async () => {
   if (!confirm('Clear all logged wear dates? This cannot be undone.')) return;
   wearlog = {};
@@ -491,18 +742,51 @@ document.getElementById('importFile').addEventListener('change', (e) => {
   e.target.value = '';
 });
 
+// Add-item panel
+const addPanel = document.getElementById('addPanel');
+document.getElementById('toggleAddBtn').addEventListener('click', () => {
+  addPanel.classList.toggle('open');
+});
+document.getElementById('cancelAddBtn').addEventListener('click', () => {
+  addPanel.classList.remove('open');
+  clearAddForm();
+});
+function clearAddForm(){
+  ['f-brand','f-type','f-color','f-material','f-code'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('f-isnew').checked = false;
+}
+document.getElementById('saveItemBtn').addEventListener('click', async () => {
+  const brand = document.getElementById('f-brand').value.trim();
+  const type = document.getElementById('f-type').value.trim();
+  const color = document.getElementById('f-color').value.trim();
+  const material = document.getElementById('f-material').value.trim();
+  const code = document.getElementById('f-code').value.trim();
+  const isNew = document.getElementById('f-isnew').checked;
+
+  if (!brand || !type || !color){
+    alert('Please fill in at least brand, type, and color.');
+    return;
+  }
+
+  const id = 'custom' + Date.now() + Math.floor(Math.random() * 1000);
+  customItems.push({ id, brand, type, material: material || 'Unspecified', color, code, isNew });
+  await saveCustomItems();
+  clearAddForm();
+  addPanel.classList.remove('open');
+  populateFilters();
+  render();
+});
+
 (async function init(){
   try {
     document.getElementById('todayline').textContent =
       new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-    populateFilters();
     try {
       await withTimeout(loadState(), 3000);
     } catch(e){
-      // Storage never responded in time — proceed with empty state rather
-      // than hanging, so the app is at least usable this session.
-      wearlog = {}; activated = {}; storageMode = 'memory';
+      wearlog = {}; activated = {}; customItems = []; deletedIds = {}; overrides = {}; storageMode = 'memory';
     }
+    populateFilters();
     updateStorageNote();
     render();
   } catch(err){
