@@ -575,12 +575,14 @@ function renderStats(){
   const total = items.length;
   const reserveCount = items.filter(isReserve).length;
   const activeCount = total - reserveCount;
-  const todayCount = Object.values(wearlog).filter(dates => dates.length && dates[dates.length - 1] === todayISO()).length;
+  const weekCount = Object.values(wearlog).filter(dates =>
+    dates.length && daysSince(dates[dates.length - 1]) <= 6
+  ).length;
   const stats = [
     {n: total, l:'Total items'},
     {n: activeCount, l:'Active rotation'},
     {n: reserveCount, l:'In reserve'},
-    {n: todayCount, l:'Worn today'}
+    {n: weekCount, l:'Worn this week'}
   ];
   document.getElementById('stats').innerHTML = stats.map(s =>
     `<div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`
