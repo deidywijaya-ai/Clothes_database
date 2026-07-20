@@ -167,8 +167,16 @@
   }
   .history-dates span{
     font-size:11px;color:var(--muted);background:var(--cream);
-    border:1px solid var(--line);border-radius:6px;padding:2px 7px;
+    border:1px solid var(--line);border-radius:6px;padding:2px 4px 2px 7px;
+    display:inline-flex;align-items:center;gap:2px;
   }
+  .date-x{
+    background:none;border:none;color:var(--muted);cursor:pointer;
+    font-size:13px;line-height:1;padding:0 4px;
+  }
+  .date-x:hover{color:var(--rust);}
+  .backdate-row{display:flex;gap:6px;align-items:center;padding-left:6px;margin-top:2px;}
+  .backdate-row input[type="date"]{font-size:12px;padding:6px 8px;flex:1;min-width:0;}
   .empty{
     text-align:center;
     padding:3rem 1rem;
@@ -390,9 +398,22 @@ async function storageGet(key){
     try {
       const v = await supabaseGet(key);
       storageMode = 'supabase';
-      // keep a local cache as an offline fallback
-      try { localStorage.setItem('wardrobe:' + key, v == null ? '' : v); } catch(e){}
-      return v;
+      let localV = null;
+      try { localV = localStorage.getItem('wardrobe:' + key); } catch(e){}
+
+      if (v != null){
+        // Supabase has data — it's the source of truth. Refresh the local cache.
+        try { localStorage.setItem('wardrobe:' + key, v); } catch(e){}
+        return v;
+      }
+      if (localV){
+        // Supabase has nothing yet, but this browser has real cached data
+        // (e.g. from before Supabase was wired in). Never discard it —
+        // push it up to Supabase so it becomes the shared copy instead.
+        try { await supabaseSet(key, localV); } catch(e){ /* will retry on next save */ }
+        return localV;
+      }
+      return null;
     } catch(e){ /* fall through */ }
   }
   if (window.storage && typeof window.storage.get === 'function'){
@@ -494,7 +515,13 @@ async function handleImportFile(file){
   try {
     const text = await file.text();
     const data = JSON.parse(text);
-    if (data.wearlog) wearlog = { ...wearlog, ...data.wearlog };
+    if (data.wearlog){
+      Object.keys(data.wearlog).forEach(id => {
+        const incoming = Array.isArray(data.wearlog[id]) ? data.wearlog[id] : [data.wearlog[id]];
+        const existing = Array.isArray(wearlog[id]) ? wearlog[id] : [];
+        wearlog[id] = [...new Set([...existing, ...incoming])].sort();
+      });
+    }
     if (data.activated) activated = { ...activated, ...data.activated };
     if (data.customItems) {
       const existingIds = new Set(customItems.map(i => i.id));
@@ -504,6 +531,7 @@ async function handleImportFile(file){
     if (data.overrides) overrides = { ...overrides, ...data.overrides };
     await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), saveOverrides()]);
     updateStorageNote();
+    populateFilters();
     render();
     alert('Import complete.');
   } catch(e){
@@ -528,6 +556,8 @@ function populateFilters(){
   const cSel = document.getElementById('filterColor');
   const bSel = document.getElementById('filterBrand');
   const dl = document.getElementById('colorSuggestions');
+  const prevColor = cSel.value;
+  const prevBrand = bSel.value;
   cSel.innerHTML = '<option value="">All colors</option>';
   bSel.innerHTML = '<option value="">All brands</option>';
   dl.innerHTML = '';
@@ -536,6 +566,8 @@ function populateFilters(){
     dl.appendChild(new Option(c, c));
   });
   brands.forEach(b => bSel.appendChild(new Option(b, b)));
+  if (colors.includes(prevColor)) cSel.value = prevColor;
+  if (brands.includes(prevBrand)) bSel.value = prevBrand;
 }
 
 function renderStats(){
@@ -570,6 +602,13 @@ function matchesFilters(item){
 
 function escapeAttr(s){
   return String(s == null ? '' : s).replace(/"/g, '&quot;');
+}
+
+function escapeHTML(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function editFormHTML(item){
@@ -630,23 +669,32 @@ function cardHTML(item){
   const editBtn = `<button class="btn small" data-action="edit" data-id="${item.id}">Edit</button>`;
   const deleteBtn = `<button class="btn ghost small" data-action="delete" data-id="${item.id}" title="Delete item" aria-label="Delete item">Delete</button>`;
 
-  const historyBlock = count
-    ? `<details class="history">
-         <summary>Worn ${count} time${count === 1 ? '' : 's'}</summary>
-         <div class="history-dates">${dates.slice().reverse().map(d => `<span>${formatDate(d)}</span>`).join('')}</div>
-       </details>`
-    : `<p class="meta" style="padding-left:6px;margin:0;">Worn 0 times</p>`;
+  const chips = dates.slice().reverse().map(d =>
+    `<span>${formatDate(d)}<button class="date-x" data-action="remove-date" data-id="${item.id}" data-date="${d}" title="Remove this date" aria-label="Remove this date">&times;</button></span>`
+  ).join('');
+
+  const historyBlock = `
+    ${count
+      ? `<details class="history">
+           <summary>Worn ${count} time${count === 1 ? '' : 's'}</summary>
+           <div class="history-dates">${chips}</div>
+         </details>`
+      : `<p class="meta" style="padding-left:6px;margin:0;">Worn 0 times</p>`}
+    <div class="backdate-row">
+      <input type="date" id="backdate-${item.id}" max="${todayISO()}">
+      <button class="btn small" data-action="log-date" data-id="${item.id}">Log this date</button>
+    </div>`;
 
   return `
   <div class="card" style="--tagcolor:${hex}">
     <div class="card-top">
       <span class="swatch" style="background:${hex}"></span>
       <div class="titles">
-        <div class="brand">${item.brand}</div>
-        <div class="name">${item.color} ${item.type}</div>
+        <div class="brand">${escapeHTML(item.brand)}</div>
+        <div class="name">${escapeHTML(item.color)} ${escapeHTML(item.type)}</div>
       </div>
     </div>
-    <div class="meta">${item.material}${item.code ? ' &middot; <code class="tagcode">' + item.code + '</code>' : ''}</div>
+    <div class="meta">${escapeHTML(item.material)}${item.code ? ' &middot; <code class="tagcode">' + escapeHTML(item.code) + '</code>' : ''}</div>
     ${historyBlock}
     <div class="status-row">
       ${statusPill}
@@ -738,6 +786,24 @@ document.addEventListener('click', async (e) => {
       await saveWearlog();
       render();
     }
+  } else if (action === 'log-date'){
+    const input = document.getElementById(`backdate-${id}`);
+    const val = input ? input.value : '';
+    if (!val){ alert('Pick a date first.'); return; }
+    if (val > todayISO()){ alert('Can\'t log a future date.'); return; }
+    if (!wearlog[id]) wearlog[id] = [];
+    if (wearlog[id].includes(val)){ alert('That date is already logged for this item.'); return; }
+    wearlog[id].push(val);
+    wearlog[id].sort();
+    await saveWearlog();
+    render();
+  } else if (action === 'remove-date'){
+    const date = btn.dataset.date;
+    if (!wearlog[id]) return;
+    if (!confirm(`Remove ${formatDate(date)} from this item's wear history?`)) return;
+    wearlog[id] = wearlog[id].filter(d => d !== date);
+    await saveWearlog();
+    render();
   } else if (action === 'activate'){
     activated[id] = true;
     await saveActivated();
@@ -772,6 +838,7 @@ document.addEventListener('click', async (e) => {
     delete wearlog[id];
     delete activated[id];
     delete overrides[id];
+    if (editingId === id) editingId = null;
     await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides()]);
     populateFilters();
     render();
