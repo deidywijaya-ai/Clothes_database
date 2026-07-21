@@ -215,6 +215,21 @@
   }
   .add-panel.open{display:block;}
   .add-panel h3{font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin:0 0 12px;}
+  .swatch-picker{
+    display:flex;flex-wrap:wrap;gap:6px;
+    margin-top:8px;
+  }
+  .swatch-pick{
+    width:22px;height:22px;border-radius:50%;
+    border:2px solid transparent;
+    cursor:pointer;
+    padding:0;
+    box-shadow:0 0 0 1px rgba(0,0,0,0.12);
+  }
+  .swatch-pick.selected{
+    border-color:var(--clay);
+    box-shadow:0 0 0 1px var(--clay);
+  }
   .add-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px;}
   .add-grid label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;}
   .add-grid input, .add-grid select{width:100%;}
@@ -249,10 +264,11 @@
         <label for="f-type">Type</label>
         <input type="text" id="f-type" placeholder="e.g. Regular fit polo">
       </div>
-      <div>
+      <div style="grid-column:1/-1;">
         <label for="f-color">Color</label>
         <input type="text" id="f-color" placeholder="e.g. Navy" list="colorSuggestions">
         <datalist id="colorSuggestions"></datalist>
+        <div class="swatch-picker" id="f-color-picker"></div>
       </div>
       <div>
         <label for="f-material">Material</label>
@@ -312,9 +328,13 @@
 const BASE_ITEMS = [{"id": "item001", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH6348", "isNew": false}, {"id": "item002", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": false}, {"id": "item003", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Pink", "code": "DH3201", "isNew": false}, {"id": "item004", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyamide + elastane", "color": "Grey", "code": "DH5943", "isNew": false}, {"id": "item005", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH7362", "isNew": false}, {"id": "item006", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH7362", "isNew": false}, {"id": "item007", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH5522", "isNew": false}, {"id": "item008", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": false}, {"id": "item009", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Black", "code": "DH4777", "isNew": false}, {"id": "item010", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Black", "code": "PH6351", "isNew": false}, {"id": "item011", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH1498", "isNew": false}, {"id": "item012", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH3201", "isNew": false}, {"id": "item013", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + Polyester + Elastane", "color": "White", "code": "PH6232", "isNew": false}, {"id": "item014", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "White", "code": "PH6351", "isNew": false}, {"id": "item015", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Beige", "code": "PH2527", "isNew": false}, {"id": "item016", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH0124", "isNew": false}, {"id": "item017", "brand": "Lacoste", "type": "Classic fit T shirt", "material": "Cotton", "color": "Beige", "code": "TH9769", "isNew": false}, {"id": "item018", "brand": "Lacoste", "type": "T shirt", "material": "Cotton", "color": "Light Blue", "code": "TH0124", "isNew": false}, {"id": "item019", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Light Blue", "code": "DH8915", "isNew": false}, {"id": "item020", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH6238", "isNew": false}, {"id": "item021", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH2583", "isNew": false}, {"id": "item022", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH5522", "isNew": false}, {"id": "item100", "brand": "Lacoste", "type": "Regular fit long sleeve shirt", "material": "Cotton", "color": "Blue", "code": "CH6273", "isNew": false}, {"id": "item023", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Grey", "code": "", "isNew": false}, {"id": "item024", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Grey", "code": "Black sablon AX", "isNew": false}, {"id": "item025", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Black", "code": "Super baggy", "isNew": false}, {"id": "item026", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "A|X", "isNew": false}, {"id": "item027", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "Armani Exchange", "isNew": false}, {"id": "item028", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Black", "code": "Lost in Sounds", "isNew": false}, {"id": "item101", "brand": "AX", "type": "Slim Fit T Shirt", "material": "Cotton", "color": "Navy", "code": "AX at top right", "isNew": false}, {"id": "item102", "brand": "AX", "type": "Regular Fit T Shirt", "material": "Cotton", "color": "Navy", "code": "Baggy", "isNew": false}, {"id": "item031", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "White", "code": "", "isNew": false}, {"id": "item032", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "Armani Exchange", "isNew": false}, {"id": "item033", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "White", "code": "Lost in Sounds", "isNew": false}, {"id": "item034", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "Unclear AX words", "isNew": false}, {"id": "item035", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "Sky blue buttons", "isNew": false}, {"id": "item036", "brand": "AX", "type": "Polo", "material": "Cotton", "color": "Navy", "code": "Gucci like", "isNew": false}, {"id": "item037", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Navy", "code": "", "isNew": false}, {"id": "item038", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Green", "code": "DH4777", "isNew": true}, {"id": "item039", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Navy", "code": "DH8915", "isNew": true}, {"id": "item040", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "Black", "code": "DH8915", "isNew": true}, {"id": "item041", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester + Elastane", "color": "White", "code": "DH8915", "isNew": true}, {"id": "item042", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Blue", "code": "DH7362", "isNew": true}, {"id": "item043", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Navy", "code": "PH0542", "isNew": true}, {"id": "item044", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Blue", "code": "PH6348", "isNew": true}, {"id": "item045", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Black", "code": "PH2742", "isNew": true}, {"id": "item046", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Beige", "code": "PH1498", "isNew": true}, {"id": "item047", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Pink", "code": "PH5522", "isNew": true}, {"id": "item048", "brand": "Lacoste", "type": "Slim fit polo", "material": "Cotton + elastane", "color": "Red", "code": "PH7937", "isNew": true}, {"id": "item049", "brand": "Lacoste", "type": "Regular fit polo", "material": "Polyester", "color": "Orange", "code": "DH3201", "isNew": true}, {"id": "item050", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Grey", "code": "PH5522", "isNew": true}, {"id": "item051", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton + elastane", "color": "Green", "code": "PH5522", "isNew": true}, {"id": "item052", "brand": "Lacoste", "type": "Regular fit polo", "material": "Cotton", "color": "Light Blue", "code": "PH2527", "isNew": true}, {"id": "item103", "brand": "Lacoste", "type": "Regular fit long sleeve shirt", "material": "Cotton", "color": "White", "code": "CH6273", "isNew": true}, {"id": "item104", "brand": "Lacoste", "type": "Slim fit long sleeve shirt", "material": "Cotton + polyester", "color": "Navy", "code": "CH8552", "isNew": true}, {"id": "item105", "brand": "Lacoste", "type": "Slim fit long sleeve shirt", "material": "Cotton + polyester", "color": "Light Blue", "code": "CH8552", "isNew": true}, {"id": "item106", "brand": "Lacoste", "type": "Regular fit long sleeve polo", "material": "Modal + elastane", "color": "Light Brown", "code": "DH0760", "isNew": true}, {"id": "item053", "brand": "AX", "type": "T shirt", "material": "Cotton", "color": "Blue", "code": "Lost in Sounds", "isNew": true}, {"id": "item054", "brand": "AX", "type": "Zipped Polo", "material": "Cotton", "color": "Beige", "code": "", "isNew": true}];
 
 const COLOR_HEX = {
-  'Navy':'#1F2D4A','Black':'#201F1D','Blue':'#2C5FA8','White':'#F5F3EC',
-  'Beige':'#C9A876','Grey':'#8B877D','Pink':'#D98CA0','Green':'#4F7A4A',
-  'Light Blue':'#7FA8CC','Red':'#B23B3B','Orange':'#D97736'
+  'Navy':'#1F2D4A','Black':'#201F1D','Charcoal':'#3B3B3D','Grey':'#8B877D','Light Grey':'#B7B2A6',
+  'White':'#F5F3EC','Off White':'#EEE8D9','Cream':'#EFE3C2','Beige':'#C9A876','Tan':'#C2986A',
+  'Khaki':'#B7A265','Brown':'#6E4A2E','Blue':'#2C5FA8','Light Blue':'#7FA8CC','Sky Blue':'#8FC1E3',
+  'Teal':'#2B7A78','Turquoise':'#3FB6A8','Green':'#4F7A4A','Olive':'#6B6E3A','Sage':'#8CA084',
+  'Mint':'#A8D5BA','Yellow':'#E8C547','Mustard':'#C99A2E','Orange':'#D97736','Burnt Orange':'#B5541C',
+  'Red':'#B23B3B','Maroon':'#6B2737','Burgundy':'#7A2331','Pink':'#D98CA0','Hot Pink':'#D94F8C',
+  'Purple':'#6B4E8E','Lavender':'#B8A4CC'
 };
 
 let wearlog = {};      // itemId -> array of ISO date strings, oldest first
@@ -630,6 +650,13 @@ function escapeHTML(s){
     .replace(/>/g, '&gt;');
 }
 
+function swatchPickerHTML(targetId, current){
+  return Object.entries(COLOR_HEX).map(([name, hex]) => {
+    const selected = name === current ? ' selected' : '';
+    return `<button type="button" class="swatch-pick${selected}" style="background:${hex}" data-action="pick-color" data-target="${targetId}" data-color="${escapeAttr(name)}" title="${escapeAttr(name)}" aria-label="${escapeAttr(name)}"></button>`;
+  }).join('');
+}
+
 function editFormHTML(item){
   return `
   <div class="card" style="--tagcolor:${COLOR_HEX[item.color] || '#ccc'}">
@@ -639,8 +666,10 @@ function editFormHTML(item){
           <input type="text" id="edit-brand-${item.id}" value="${escapeAttr(item.brand)}"></div>
         <div><label style="font-size:11px;color:var(--muted);">Type</label>
           <input type="text" id="edit-type-${item.id}" value="${escapeAttr(item.type)}"></div>
-        <div><label style="font-size:11px;color:var(--muted);">Color</label>
-          <input type="text" id="edit-color-${item.id}" value="${escapeAttr(item.color)}"></div>
+        <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Color</label>
+          <input type="text" id="edit-color-${item.id}" value="${escapeAttr(item.color)}">
+          <div class="swatch-picker">${swatchPickerHTML(`edit-color-${item.id}`, item.color)}</div>
+        </div>
         <div><label style="font-size:11px;color:var(--muted);">Material</label>
           <input type="text" id="edit-material-${item.id}" value="${escapeAttr(item.material)}"></div>
         <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Item code</label>
@@ -830,6 +859,16 @@ document.addEventListener('click', async (e) => {
   } else if (action === 'edit'){
     editingId = id;
     render();
+  } else if (action === 'pick-color'){
+    const targetId = btn.dataset.target;
+    const color = btn.dataset.color;
+    const input = document.getElementById(targetId);
+    if (input) input.value = color;
+    const picker = btn.parentElement;
+    if (picker){
+      picker.querySelectorAll('.swatch-pick').forEach(b => b.classList.remove('selected'));
+      btn.classList.add('selected');
+    }
   } else if (action === 'cancel-edit'){
     editingId = null;
     render();
@@ -902,6 +941,7 @@ document.getElementById('cancelAddBtn').addEventListener('click', () => {
 function clearAddForm(){
   ['f-brand','f-type','f-color','f-material','f-code'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-isnew').checked = false;
+  document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-color', '');
 }
 document.getElementById('saveItemBtn').addEventListener('click', async () => {
   const brand = document.getElementById('f-brand').value.trim();
@@ -929,6 +969,7 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
   try {
     document.getElementById('todayline').textContent =
       new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+    document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-color', '');
     try {
       await withTimeout(loadState(), 3000);
     } catch(e){
