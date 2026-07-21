@@ -266,8 +266,10 @@
       </div>
       <div style="grid-column:1/-1;">
         <label for="f-color">Color</label>
-        <input type="text" id="f-color" placeholder="e.g. Navy" list="colorSuggestions">
+        <input type="text" id="f-color" placeholder="e.g. Navy, Slate, Dusty Rose…" list="colorSuggestions">
         <datalist id="colorSuggestions"></datalist>
+        <input type="hidden" id="f-swatch-color" value="">
+        <p style="font-size:11px;color:var(--muted);margin:8px 0 2px;">Pick the closest swatch for the display dot/stripe (optional — doesn't change the text above)</p>
         <div class="swatch-picker" id="f-color-picker"></div>
       </div>
       <div>
@@ -336,6 +338,14 @@ const COLOR_HEX = {
   'Red':'#B23B3B','Maroon':'#6B2737','Burgundy':'#7A2331','Pink':'#D98CA0','Hot Pink':'#D94F8C',
   'Purple':'#6B4E8E','Lavender':'#B8A4CC'
 };
+
+// The stripe/swatch dot color is looked up in this order:
+// 1. item.swatchColor — an explicit palette pick, independent of the free-text label
+// 2. item.color — if it happens to exactly match a palette name
+// 3. a neutral grey fallback
+function displayHex(item){
+  return COLOR_HEX[item.swatchColor] || COLOR_HEX[item.color] || '#ccc';
+}
 
 let wearlog = {};      // itemId -> array of ISO date strings, oldest first
 let activated = {};    // itemId -> true, if moved out of reserve
@@ -658,8 +668,9 @@ function swatchPickerHTML(targetId, current){
 }
 
 function editFormHTML(item){
+  const swatchDefault = item.swatchColor || (COLOR_HEX[item.color] ? item.color : '');
   return `
-  <div class="card" style="--tagcolor:${COLOR_HEX[item.color] || '#ccc'}">
+  <div class="card" style="--tagcolor:${displayHex(item)}">
     <div class="edit-form">
       <div class="edit-grid">
         <div><label style="font-size:11px;color:var(--muted);">Brand</label>
@@ -668,7 +679,9 @@ function editFormHTML(item){
           <input type="text" id="edit-type-${item.id}" value="${escapeAttr(item.type)}"></div>
         <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Color</label>
           <input type="text" id="edit-color-${item.id}" value="${escapeAttr(item.color)}">
-          <div class="swatch-picker">${swatchPickerHTML(`edit-color-${item.id}`, item.color)}</div>
+          <input type="hidden" id="edit-swatchcolor-${item.id}" value="${escapeAttr(swatchDefault)}">
+          <p style="font-size:11px;color:var(--muted);margin:8px 0 2px;">Pick the closest swatch for the display dot/stripe (optional — doesn't change the text above)</p>
+          <div class="swatch-picker">${swatchPickerHTML(`edit-swatchcolor-${item.id}`, swatchDefault)}</div>
         </div>
         <div><label style="font-size:11px;color:var(--muted);">Material</label>
           <input type="text" id="edit-material-${item.id}" value="${escapeAttr(item.material)}"></div>
@@ -680,13 +693,14 @@ function editFormHTML(item){
         <button class="btn small" data-action="cancel-edit" data-id="${item.id}">Cancel</button>
       </div>
     </div>
+
   </div>`;
 }
 
 function cardHTML(item){
   if (editingId === item.id) return editFormHTML(item);
 
-  const hex = COLOR_HEX[item.color] || '#ccc';
+  const hex = displayHex(item);
   const dates = wearlog[item.id] || [];
   const count = dates.length;
   const last = count ? dates[count - 1] : null;
@@ -876,13 +890,14 @@ document.addEventListener('click', async (e) => {
     const brand = document.getElementById(`edit-brand-${id}`).value.trim();
     const type = document.getElementById(`edit-type-${id}`).value.trim();
     const color = document.getElementById(`edit-color-${id}`).value.trim();
+    const swatchColor = document.getElementById(`edit-swatchcolor-${id}`).value.trim();
     const material = document.getElementById(`edit-material-${id}`).value.trim();
     const code = document.getElementById(`edit-code-${id}`).value.trim();
     if (!brand || !type || !color){
       alert('Brand, type, and color can\'t be empty.');
       return;
     }
-    overrides[id] = { brand, type, color, material: material || 'Unspecified', code };
+    overrides[id] = { brand, type, color, swatchColor, material: material || 'Unspecified', code };
     await saveOverrides();
     editingId = null;
     populateFilters();
@@ -939,14 +954,15 @@ document.getElementById('cancelAddBtn').addEventListener('click', () => {
   clearAddForm();
 });
 function clearAddForm(){
-  ['f-brand','f-type','f-color','f-material','f-code'].forEach(id => document.getElementById(id).value = '');
+  ['f-brand','f-type','f-color','f-swatch-color','f-material','f-code'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-isnew').checked = false;
-  document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-color', '');
+  document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
 }
 document.getElementById('saveItemBtn').addEventListener('click', async () => {
   const brand = document.getElementById('f-brand').value.trim();
   const type = document.getElementById('f-type').value.trim();
   const color = document.getElementById('f-color').value.trim();
+  const swatchColor = document.getElementById('f-swatch-color').value.trim();
   const material = document.getElementById('f-material').value.trim();
   const code = document.getElementById('f-code').value.trim();
   const isNew = document.getElementById('f-isnew').checked;
@@ -957,7 +973,7 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
   }
 
   const id = 'custom' + Date.now() + Math.floor(Math.random() * 1000);
-  customItems.push({ id, brand, type, material: material || 'Unspecified', color, code, isNew });
+  customItems.push({ id, brand, type, material: material || 'Unspecified', color, swatchColor, code, isNew });
   await saveCustomItems();
   clearAddForm();
   addPanel.classList.remove('open');
@@ -969,7 +985,7 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
   try {
     document.getElementById('todayline').textContent =
       new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-    document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-color', '');
+    document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
     try {
       await withTimeout(loadState(), 3000);
     } catch(e){
