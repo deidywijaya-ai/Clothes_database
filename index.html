@@ -679,7 +679,7 @@ function swatchPickerHTML(targetId, current){
 function editFormHTML(item){
   const swatchDefault = item.swatchColor || (COLOR_HEX[item.color] ? item.color : '');
   return `
-  <div class="card" style="--tagcolor:${displayHex(item)}">
+  <div class="card" style="--tagcolor:${displayHex(item)}; background: color-mix(in srgb, ${displayHex(item)} 14%, var(--paper));">
     <div class="edit-form">
       <div class="edit-grid">
         <div><label style="font-size:11px;color:var(--muted);">Brand</label>
@@ -757,7 +757,7 @@ function cardHTML(item){
     </div>`;
 
   return `
-  <div class="card" style="--tagcolor:${hex}">
+  <div class="card" style="--tagcolor:${hex}; background: color-mix(in srgb, ${hex} 14%, var(--paper));">
     <div class="card-top">
       <span class="swatch" style="background:${hex}"></span>
       <div class="titles">
