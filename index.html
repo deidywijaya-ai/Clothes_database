@@ -42,7 +42,7 @@
     letter-spacing:-0.01em;
   }
   .sub{color:var(--muted);font-size:14px;margin:0;}
-  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:2rem;}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:2rem;}
   .stat{
     background:var(--paper);
     border:1px solid var(--line);
@@ -379,12 +379,13 @@ function isoFromDate(d){
   return `${y}-${m}-${day}`;
 }
 
-function startOfWeekISO(){
-  // Monday-start week, using local time.
+function startOfWeekISO(offsetWeeks){
+  // Monday-start week, using local time. offsetWeeks=0 is this week, -1 is last week, etc.
+  offsetWeeks = offsetWeeks || 0;
   const d = new Date();
   const dow = d.getDay(); // 0 = Sunday ... 6 = Saturday
   const diffToMonday = dow === 0 ? 6 : dow - 1;
-  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diffToMonday);
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diffToMonday + (offsetWeeks * 7));
   return isoFromDate(monday);
 }
 
@@ -621,15 +622,23 @@ function renderStats(){
   const total = items.length;
   const reserveCount = items.filter(isReserve).length;
   const activeCount = total - reserveCount;
-  const weekStart = startOfWeekISO();
+
+  const thisWeekStart = startOfWeekISO(0);
   const weekCount = Object.values(wearlog).filter(dates =>
-    dates.length && dates[dates.length - 1] >= weekStart
+    dates.length && dates[dates.length - 1] >= thisWeekStart
   ).length;
+
+  const lastWeekStart = startOfWeekISO(-1);
+  const lastWeekCount = Object.values(wearlog).filter(dates =>
+    dates.some(d => d >= lastWeekStart && d < thisWeekStart)
+  ).length;
+
   const stats = [
     {n: total, l:'Total items'},
     {n: activeCount, l:'Active rotation'},
     {n: reserveCount, l:'In reserve'},
-    {n: weekCount, l:'Worn this week'}
+    {n: weekCount, l:'Worn this week'},
+    {n: lastWeekCount, l:'Worn last week'}
   ];
   document.getElementById('stats').innerHTML = stats.map(s =>
     `<div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`
