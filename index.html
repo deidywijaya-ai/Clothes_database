@@ -433,7 +433,7 @@ function formatDate(iso){
 // useful on busy/textured backgrounds (by design — it just won't find a
 // light starting point to flood from).
 function removeBackgroundFromCanvas(canvas, tolerance){
-  tolerance = tolerance || 42; // combined RGB distance allowed per step
+  tolerance = tolerance || 20; // combined RGB distance allowed per step (conservative)
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
   const imgData = ctx.getImageData(0, 0, w, h);
@@ -444,8 +444,12 @@ function removeBackgroundFromCanvas(canvas, tolerance){
   const qx = new Int32Array(n);
   const qy = new Int32Array(n);
 
+  // Stricter than before: only near-PURE white/light-grey counts as
+  // background. Pale/pastel garments (soft yellow, light pink, etc.)
+  // should fail this on purpose, so the flood fill can never start
+  // inside them or spread through them.
   function isLight(r, g, b){
-    return r > 195 && g > 195 && b > 195 && (Math.max(r,g,b) - Math.min(r,g,b)) < 22;
+    return r > 232 && g > 232 && b > 232 && (Math.max(r,g,b) - Math.min(r,g,b)) < 12;
   }
 
   for (let y = 0; y < h; y++){
@@ -475,8 +479,12 @@ function removeBackgroundFromCanvas(canvas, tolerance){
           if (visited[ni]) continue;
           const ndi = ni * 4;
           const nr = data[ndi], ng = data[ndi+1], nb = data[ndi+2];
+          // Double safeguard: the candidate pixel must (a) be close to
+          // the original seed color, AND (b) independently qualify as
+          // "light" itself — this stops the fill from drifting through
+          // a soft gradient into genuinely-colored fabric.
           const dist = Math.abs(nr-seedR) + Math.abs(ng-seedG) + Math.abs(nb-seedB);
-          if (dist <= tolerance){
+          if (dist <= tolerance && isLight(nr, ng, nb)){
             visited[ni] = 1;
             qx[tail] = nx; qy[tail] = ny; tail++;
           }
