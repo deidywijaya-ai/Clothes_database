@@ -296,6 +296,10 @@
         <label for="f-photo-input">Photo (optional)</label>
         <input type="file" accept="image/*" id="f-photo-input">
         <input type="hidden" id="f-photo" value="">
+        <div class="checkbox-row" style="margin:6px 0 0;">
+          <input type="checkbox" id="f-remove-bg" checked>
+          <label for="f-remove-bg" style="font-size:12px;">Remove background (best for plain product photos)</label>
+        </div>
         <div id="f-photo-preview" style="margin-top:8px;"></div>
       </div>
     </div>
@@ -421,7 +425,73 @@ function formatDate(iso){
 // Crops an uploaded image to a centered square, shrinks it, and compresses
 // it to a small JPEG data URL — small enough to store inline alongside the
 // rest of the item's data (no separate file hosting needed).
-function fileToThumbnail(file, size, quality){
+// Removes a plain, light background from a canvas in place, using a
+// flood fill that starts only at edge pixels which are already
+// light/near-white — so it never eats into white DETAILS inside the
+// garment (like piping or a logo), only true background connected to
+// the image border. Works well for clean product photos; does nothing
+// useful on busy/textured backgrounds (by design — it just won't find a
+// light starting point to flood from).
+function removeBackgroundFromCanvas(canvas, tolerance){
+  tolerance = tolerance || 42; // combined RGB distance allowed per step
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const data = imgData.data;
+  const n = w * h;
+  const visited = new Uint8Array(n);
+  const toRemove = new Uint8Array(n);
+  const qx = new Int32Array(n);
+  const qy = new Int32Array(n);
+
+  function isLight(r, g, b){
+    return r > 195 && g > 195 && b > 195 && (Math.max(r,g,b) - Math.min(r,g,b)) < 22;
+  }
+
+  for (let y = 0; y < h; y++){
+    for (let x = 0; x < w; x++){
+      const onBorder = x === 0 || y === 0 || x === w - 1 || y === h - 1;
+      if (!onBorder) continue;
+      const i = y * w + x;
+      if (visited[i]) continue;
+      const di = i * 4;
+      const r = data[di], g = data[di+1], b = data[di+2];
+      if (!isLight(r, g, b)) continue;
+
+      let head = 0, tail = 0;
+      qx[tail] = x; qy[tail] = y; tail++;
+      visited[i] = 1;
+      const seedR = r, seedG = g, seedB = b;
+
+      while (head < tail){
+        const cx = qx[head], cy = qy[head]; head++;
+        const ci = cy * w + cx;
+        toRemove[ci] = 1;
+        const neighbors = [[cx-1,cy],[cx+1,cy],[cx,cy-1],[cx,cy+1]];
+        for (let k = 0; k < 4; k++){
+          const nx = neighbors[k][0], ny = neighbors[k][1];
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const ni = ny * w + nx;
+          if (visited[ni]) continue;
+          const ndi = ni * 4;
+          const nr = data[ndi], ng = data[ndi+1], nb = data[ndi+2];
+          const dist = Math.abs(nr-seedR) + Math.abs(ng-seedG) + Math.abs(nb-seedB);
+          if (dist <= tolerance){
+            visited[ni] = 1;
+            qx[tail] = nx; qy[tail] = ny; tail++;
+          }
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < n; i++){
+    if (toRemove[i]) data[i*4 + 3] = 0;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function fileToThumbnail(file, size, quality, removeBg){
   size = size || 200;
   quality = quality || 0.72;
   return new Promise((resolve, reject) => {
@@ -431,15 +501,35 @@ function fileToThumbnail(file, size, quality){
       const img = new Image();
       img.onerror = () => reject(new Error('decode failed'));
       img.onload = () => {
-        const side = Math.min(img.width, img.height);
-        const sx = (img.width - side) / 2;
-        const sy = (img.height - side) / 2;
+        let sourceCanvas = null;
+
+        if (removeBg){
+          // Do background removal at a moderate working resolution first —
+          // more accurate edges than removing it after heavy downscaling.
+          const workMax = 600;
+          const scale = Math.min(1, workMax / Math.max(img.width, img.height));
+          const ww = Math.max(1, Math.round(img.width * scale));
+          const wh = Math.max(1, Math.round(img.height * scale));
+          const work = document.createElement('canvas');
+          work.width = ww; work.height = wh;
+          work.getContext('2d').drawImage(img, 0, 0, ww, wh);
+          removeBackgroundFromCanvas(work);
+          sourceCanvas = work;
+        }
+
+        const srcW = sourceCanvas ? sourceCanvas.width : img.width;
+        const srcH = sourceCanvas ? sourceCanvas.height : img.height;
+        const side = Math.min(srcW, srcH);
+        const sx = (srcW - side) / 2;
+        const sy = (srcH - side) / 2;
+
         const canvas = document.createElement('canvas');
         canvas.width = size;
         canvas.height = size;
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, sx, sy, side, side, 0, 0, size, size);
-        resolve(canvas.toDataURL('image/jpeg', quality));
+        ctx.drawImage(sourceCanvas || img, sx, sy, side, side, 0, 0, size, size);
+
+        resolve(removeBg ? canvas.toDataURL('image/png') : canvas.toDataURL('image/jpeg', quality));
       };
       img.src = e.target.result;
     };
@@ -752,6 +842,10 @@ function editFormHTML(item){
           <label style="font-size:11px;color:var(--muted);">Photo (optional)</label>
           <input type="file" accept="image/*" id="edit-photo-input-${item.id}">
           <input type="hidden" id="edit-photo-${item.id}" value="${escapeAttr(item.photo || '')}">
+          <div class="checkbox-row" style="margin:6px 0 0;">
+            <input type="checkbox" id="edit-removebg-${item.id}" checked>
+            <label for="edit-removebg-${item.id}" style="font-size:12px;">Remove background (best for plain product photos)</label>
+          </div>
           <div id="edit-photo-preview-${item.id}" style="margin-top:8px;">
             ${photoPreviewHTML(item.photo, `edit-photo-${item.id}`)}
           </div>
@@ -1000,9 +1094,18 @@ document.addEventListener('change', async (e) => {
   const file = target.files && target.files[0];
   if (!file) return;
 
+  let removeBgCheckbox = null;
+  if (target.id === 'f-photo-input'){
+    removeBgCheckbox = document.getElementById('f-remove-bg');
+  } else if (target.id.startsWith('edit-photo-input-')){
+    const itemId = target.id.slice('edit-photo-input-'.length);
+    removeBgCheckbox = document.getElementById(`edit-removebg-${itemId}`);
+  }
+  const removeBg = removeBgCheckbox ? removeBgCheckbox.checked : false;
+
   let dataUrl;
   try {
-    dataUrl = await fileToThumbnail(file);
+    dataUrl = await fileToThumbnail(file, 200, 0.72, removeBg);
   } catch (err) {
     alert('Could not process that image. Try a different photo.');
     return;
@@ -1057,6 +1160,7 @@ document.getElementById('cancelAddBtn').addEventListener('click', () => {
 function clearAddForm(){
   ['f-brand','f-type','f-color','f-swatch-color','f-material','f-code','f-photo'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-isnew').checked = false;
+  document.getElementById('f-remove-bg').checked = true;
   document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
   document.getElementById('f-photo-preview').innerHTML = '';
   document.getElementById('f-photo-input').value = '';
