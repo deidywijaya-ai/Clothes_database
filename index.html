@@ -524,34 +524,61 @@ function getContentBBox(canvas, alphaThreshold){
   return { minX, maxX, minY, maxY };
 }
 
-// Crops a (background-removed) canvas tightly to the garment, then takes a
-// square from the top using the garment's own tight width as the frame —
-// this is what actually captures the collar/chest area filling the frame,
-// instead of leaving inconsistent margins depending on the source photo.
-function cropToTightGarmentSquare(canvas, padFrac){
+// Crops a (background-removed) canvas tightly to just the top portion of
+// the garment (collar/chest area), filling the square as much as possible.
+// Two passes: first tighten to the WHOLE garment (removes source-photo
+// padding), take the top fraction of THAT height (guarantees "top half of
+// the shirt" regardless of how the original photo was framed), then
+// re-tighten horizontally to what's actually in that slice (the collar
+// area is usually narrower than the full torso) and crop — never pad — to
+// a square so no space is wasted.
+function cropToTightGarmentSquare(canvas, topFrac, padFrac){
+  topFrac = topFrac == null ? 0.55 : topFrac;
   padFrac = padFrac == null ? 0.03 : padFrac;
+
   const bbox = getContentBBox(canvas);
   if (!bbox) return canvas;
 
-  const bw0 = bbox.maxX - bbox.minX;
-  const bh0 = bbox.maxY - bbox.minY;
-  const mx = Math.round(bw0 * padFrac);
-  const my = Math.round(bh0 * padFrac);
-  const x0 = Math.max(0, bbox.minX - mx);
-  const y0 = Math.max(0, bbox.minY - my);
-  const x1 = Math.min(canvas.width, bbox.maxX + mx);
-  const y1 = Math.min(canvas.height, bbox.maxY + my);
-  const bw = x1 - x0, bh = y1 - y0;
+  const w = canvas.width, h = canvas.height;
+  const bw0 = bbox.maxX - bbox.minX, bh0 = bbox.maxY - bbox.minY;
+  const mx = Math.round(bw0 * padFrac), my = Math.round(bh0 * padFrac);
+  const bx0 = Math.max(0, bbox.minX - mx), by0 = Math.max(0, bbox.minY - my);
+  const bx1 = Math.min(w, bbox.maxX + mx), by1 = Math.min(h, bbox.maxY + my);
+  const bw = bx1 - bx0, bh = by1 - by0;
 
-  const side = Math.min(bw, bh);
-  // top-anchored square when wider than tall, else the tight box itself
-  const cropW = bw <= bh ? bw : side;
-  const cropH = bw <= bh ? Math.min(bw, bh) : side;
+  // Step 1: whole-garment tight crop
+  const body = document.createElement('canvas');
+  body.width = bw; body.height = bh;
+  body.getContext('2d').drawImage(canvas, bx0, by0, bw, bh, 0, 0, bw, bh);
+
+  // Step 2: top fraction of the GARMENT's own height
+  const sliceH = Math.max(1, Math.round(bh * topFrac));
+  const slice = document.createElement('canvas');
+  slice.width = bw; slice.height = sliceH;
+  slice.getContext('2d').drawImage(body, 0, 0, bw, sliceH, 0, 0, bw, sliceH);
+
+  // Step 3: re-tighten horizontally to this slice's actual content
+  const sBbox = getContentBBox(slice);
+  let tx0 = 0, ty0 = 0, tw = bw, th = sliceH;
+  if (sBbox){
+    const tbw = sBbox.maxX - sBbox.minX, tbh = sBbox.maxY - sBbox.minY;
+    const tmx = Math.round(tbw * padFrac), tmy = Math.round(tbh * padFrac);
+    tx0 = Math.max(0, sBbox.minX - tmx);
+    ty0 = Math.max(0, sBbox.minY - tmy);
+    const tx1 = Math.min(bw, sBbox.maxX + tmx);
+    const ty1 = Math.min(sliceH, sBbox.maxY + tmy);
+    tw = tx1 - tx0; th = ty1 - ty0;
+  }
+
+  // Step 4: crop (never pad) to a square — maximizes how much of the
+  // frame the garment actually fills
+  const side = Math.min(tw, th);
+  const cx = tx0 + Math.round((tw - side) / 2);
+  const cy = ty0 + (th > side ? Math.round((th - side) / 2) : 0);
 
   const out = document.createElement('canvas');
-  out.width = cropW;
-  out.height = cropH;
-  out.getContext('2d').drawImage(canvas, x0, y0, cropW, cropH, 0, 0, cropW, cropH);
+  out.width = side; out.height = side;
+  out.getContext('2d').drawImage(slice, cx, cy, side, side, 0, 0, side, side);
   return out;
 }
 
