@@ -585,7 +585,7 @@ function getCleanedGarmentBBox(canvas, minComponentFrac){
 // off-center on a real test photo), cutting off one side of the collar.
 // The whole-garment bbox is far more stable to center on.
 function cropToTightGarmentSquare(canvas, topFrac, padFrac){
-  topFrac = topFrac == null ? 0.55 : topFrac;
+  topFrac = topFrac == null ? 0.88 : topFrac;
   padFrac = padFrac == null ? 0.03 : padFrac;
 
   const bbox = getCleanedGarmentBBox(canvas);
