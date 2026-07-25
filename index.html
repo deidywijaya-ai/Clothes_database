@@ -7,8 +7,32 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260724141125">
+<meta name="app-version" content="20260724161934">
 <script>
+// GitHub Pages serves through a CDN whose edge nodes only refresh their
+// cached copy the NEXT time a request reaches them after a deploy. That
+// means the very first request after an update — including this script's
+// own background version check below — can get served the same stale
+// copy as the initial page load, so a simple version comparison can be
+// fooled: both sides look identical because both are stale.
+//
+// To handle that specific case, on the first visit each browser session
+// we unconditionally force one hard, cache-busting reload — this mirrors
+// exactly what manually refreshing twice does, and "warms" the edge node
+// so this and all subsequent loads this session get the real, current
+// version. After that warm-up has happened once, we fall back to the
+// normal version-check below to catch any later deploys during the same
+// session.
+(function(){
+  try {
+    if (!sessionStorage.getItem('wardrobe-warmed')) {
+      sessionStorage.setItem('wardrobe-warmed', '1');
+      window.location.replace(window.location.pathname + '?_warm=' + Date.now());
+      return; // don't bother with the version check below on this pass
+    }
+  } catch(e) { /* ignore — never block the app from loading over this */ }
+})();
+
 // Actively checks whether a newer version of this page has been deployed
 // (e.g. after re-uploading a new index.html to GitHub Pages) and forces a
 // fresh reload if so. This is more reliable than cache-control meta tags,
