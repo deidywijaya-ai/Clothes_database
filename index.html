@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260724161934">
+<meta name="app-version" content="20260726021035">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -172,6 +172,11 @@
   .brand{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;}
   .name{font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin-top:1px;}
   .meta{font-size:12px;color:var(--muted);padding-left:6px;}
+  .item-note{
+    font-size:12px;color:var(--ink);padding-left:6px;
+    font-style:italic; opacity:0.85;
+    white-space:pre-wrap; word-break:break-word;
+  }
   code.tagcode{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
   .status-row{display:flex;justify-content:space-between;align-items:center;padding-left:6px;margin-top:2px;flex-wrap:wrap;gap:6px;}
   .pill{
@@ -345,6 +350,14 @@
         <label for="f-code">Item code (optional)</label>
         <input type="text" id="f-code" placeholder="e.g. PH5522">
       </div>
+      <div>
+        <label for="f-purchased">Purchased (month/year, optional)</label>
+        <input type="month" id="f-purchased">
+      </div>
+      <div style="grid-column:1/-1;">
+        <label for="f-notes">Notes (optional)</label>
+        <textarea id="f-notes" rows="2" style="width:100%;font-family:'Inter',sans-serif;font-size:13px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);resize:vertical;" placeholder="Fit notes, alterations, where you bought it..."></textarea>
+      </div>
       <div style="grid-column:1/-1;">
         <label for="f-photo-input">Photo (optional)</label>
         <input type="file" accept="image/*" id="f-photo-input">
@@ -375,11 +388,14 @@
     <input class="search" id="search" placeholder="Search brand, type, color, code…">
     <select id="filterColor"><option value="">All colors</option></select>
     <select id="filterBrand"><option value="">All brands</option></select>
+    <select id="filterPurchaseYear"><option value="">All purchase years</option></select>
     <select id="sortMode">
       <option value="overdue">Sort: most overdue</option>
       <option value="last-worn">Sort: last worn</option>
       <option value="most-worn">Sort: most worn</option>
       <option value="least-worn">Sort: least worn</option>
+      <option value="purchased-newest">Sort: recently purchased</option>
+      <option value="purchased-oldest">Sort: oldest purchased</option>
     </select>
   </div>
 
@@ -427,6 +443,8 @@ let activated = {};    // itemId -> true, if moved out of reserve
 let customItems = [];  // user-added items
 let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom)
 let overrides = {};    // itemId -> partial {brand,type,material,color,code} edits
+let purchasedDates = {}; // itemId -> "YYYY-MM" string (month + year only, no day)
+let itemNotes = {};    // itemId -> free-text notes string
 let currentTab = 'active';
 let sortMode = 'overdue'; // 'overdue' | 'last-worn' | 'most-worn' | 'least-worn'
 let editingId = null;  // id of item currently being edited inline, or null
@@ -473,6 +491,15 @@ function daysSince(iso){
 function formatDate(iso){
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+}
+
+// Formats a "YYYY-MM" string (from <input type="month">) into "Mon YYYY",
+// e.g. "2026-07" -> "Jul 2026". Deliberately never carries a day component.
+function formatMonthYear(ym){
+  if (!ym) return '';
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  return d.toLocaleDateString(undefined, { month:'short', year:'numeric' });
 }
 
 // Crops an uploaded image to a centered square, shrinks it, and compresses
@@ -840,6 +867,10 @@ async function loadState(){
   deletedIds = d ? JSON.parse(d) : {};
   const ov = await storageGet('overrides');
   overrides = ov ? JSON.parse(ov) : {};
+  const pd = await storageGet('purchasedDates');
+  purchasedDates = pd ? JSON.parse(pd) : {};
+  const notes = await storageGet('itemNotes');
+  itemNotes = notes ? JSON.parse(notes) : {};
 }
 
 async function saveWearlog(){ await storageSet('wearlog', JSON.stringify(wearlog)); }
@@ -847,6 +878,8 @@ async function saveActivated(){ await storageSet('activated', JSON.stringify(act
 async function saveCustomItems(){ await storageSet('customItems', JSON.stringify(customItems)); }
 async function saveDeletedIds(){ await storageSet('deletedIds', JSON.stringify(deletedIds)); }
 async function saveOverrides(){ await storageSet('overrides', JSON.stringify(overrides)); }
+async function savePurchasedDates(){ await storageSet('purchasedDates', JSON.stringify(purchasedDates)); }
+async function saveItemNotes(){ await storageSet('itemNotes', JSON.stringify(itemNotes)); }
 
 function updateStorageNote(){
   const el = document.getElementById('storagenote');
@@ -875,7 +908,7 @@ function downloadJSON(filename, obj){
 async function handleExport(){
   downloadJSON('wardrobe-rotation-backup.json', {
     exportedAt: new Date().toISOString(),
-    wearlog, activated, customItems, deletedIds, overrides
+    wearlog, activated, customItems, deletedIds, overrides, purchasedDates, itemNotes
   });
 }
 
@@ -897,7 +930,9 @@ async function handleImportFile(file){
     }
     if (data.deletedIds) deletedIds = { ...deletedIds, ...data.deletedIds };
     if (data.overrides) overrides = { ...overrides, ...data.overrides };
-    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), saveOverrides()]);
+    if (data.purchasedDates) purchasedDates = { ...purchasedDates, ...data.purchasedDates };
+    if (data.itemNotes) itemNotes = { ...itemNotes, ...data.itemNotes };
+    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), saveOverrides(), savePurchasedDates(), saveItemNotes()]);
     updateStorageNote();
     populateFilters();
     render();
@@ -923,19 +958,30 @@ function populateFilters(){
   const brands = [...new Set(items.map(i => i.brand))].sort();
   const cSel = document.getElementById('filterColor');
   const bSel = document.getElementById('filterBrand');
+  const ySel = document.getElementById('filterPurchaseYear');
   const dl = document.getElementById('colorSuggestions');
   const prevColor = cSel.value;
   const prevBrand = bSel.value;
+  const prevYear = ySel.value;
   cSel.innerHTML = '<option value="">All colors</option>';
   bSel.innerHTML = '<option value="">All brands</option>';
+  ySel.innerHTML = '<option value="">All purchase years</option>';
   dl.innerHTML = '';
   colors.forEach(c => {
     cSel.appendChild(new Option(c, c));
     dl.appendChild(new Option(c, c));
   });
   brands.forEach(b => bSel.appendChild(new Option(b, b)));
+  const years = [...new Set(items
+    .map(i => purchasedDates[i.id])
+    .filter(Boolean)
+    .map(ym => ym.split('-')[0])
+  )].sort().reverse();
+  years.forEach(y => ySel.appendChild(new Option(y, y)));
+  ySel.appendChild(new Option('Not logged', 'unlogged'));
   if (colors.includes(prevColor)) cSel.value = prevColor;
   if (brands.includes(prevBrand)) bSel.value = prevBrand;
+  if (prevYear && (years.includes(prevYear) || prevYear === 'unlogged')) ySel.value = prevYear;
 }
 
 function renderStats(){
@@ -970,8 +1016,17 @@ function matchesFilters(item){
   const q = document.getElementById('search').value.trim().toLowerCase();
   const color = document.getElementById('filterColor').value;
   const brand = document.getElementById('filterBrand').value;
+  const purchaseYear = document.getElementById('filterPurchaseYear').value;
   if (color && item.color !== color) return false;
   if (brand && item.brand !== brand) return false;
+  if (purchaseYear){
+    const pd = purchasedDates[item.id];
+    if (purchaseYear === 'unlogged'){
+      if (pd) return false;
+    } else {
+      if (!pd || !pd.startsWith(purchaseYear)) return false;
+    }
+  }
   if (q){
     const hay = `${item.brand} ${item.type} ${item.color} ${item.material} ${item.code}`.toLowerCase();
     if (!hay.includes(q)) return false;
@@ -1017,6 +1072,10 @@ function editFormHTML(item){
           <input type="text" id="edit-material-${item.id}" value="${escapeAttr(item.material)}"></div>
         <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Item code</label>
           <input type="text" id="edit-code-${item.id}" value="${escapeAttr(item.code)}"></div>
+        <div><label style="font-size:11px;color:var(--muted);">Purchased (month/year)</label>
+          <input type="month" id="edit-purchased-${item.id}" value="${escapeAttr(purchasedDates[item.id] || '')}"></div>
+        <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Notes</label>
+          <textarea id="edit-notes-${item.id}" rows="2" style="width:100%;font-family:'Inter',sans-serif;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);resize:vertical;">${escapeHTML(itemNotes[item.id] || '')}</textarea></div>
         <div style="grid-column:1/-1;">
           <label style="font-size:11px;color:var(--muted);">Photo (optional)</label>
           <input type="file" accept="image/*" id="edit-photo-input-${item.id}">
@@ -1099,6 +1158,8 @@ function cardHTML(item){
       </div>
     </div>
     <div class="meta">${escapeHTML(item.material)}${item.code ? ' &middot; <code class="tagcode">' + escapeHTML(item.code) + '</code>' : ''}</div>
+    ${purchasedDates[item.id] ? `<div class="meta" style="padding-left:6px;">Purchased ${formatMonthYear(purchasedDates[item.id])}</div>` : ''}
+    ${itemNotes[item.id] ? `<div class="item-note">${escapeHTML(itemNotes[item.id])}</div>` : ''}
     ${historyBlock}
     <div class="status-row">
       ${statusPill}
@@ -1138,6 +1199,24 @@ function render(){
         return daysSince(la) - daysSince(lb);
       });
       document.getElementById('sortlinetext').textContent = 'Sorted by most recently worn first.';
+    } else if (sortMode === 'purchased-newest'){
+      filtered.sort((a,b) => {
+        const pa = purchasedDates[a.id], pb = purchasedDates[b.id];
+        if (!pa && !pb) return 0;
+        if (!pa) return 1;
+        if (!pb) return -1;
+        return pb.localeCompare(pa);
+      });
+      document.getElementById('sortlinetext').textContent = 'Sorted by most recently purchased first.';
+    } else if (sortMode === 'purchased-oldest'){
+      filtered.sort((a,b) => {
+        const pa = purchasedDates[a.id], pb = purchasedDates[b.id];
+        if (!pa && !pb) return 0;
+        if (!pa) return 1;
+        if (!pb) return -1;
+        return pa.localeCompare(pb);
+      });
+      document.getElementById('sortlinetext').textContent = 'Sorted by oldest purchased first.';
     } else {
       filtered.sort((a,b) => {
         const la = lastWorn(a.id), lb = lastWorn(b.id);
@@ -1242,12 +1321,16 @@ document.addEventListener('click', async (e) => {
     const material = document.getElementById(`edit-material-${id}`).value.trim();
     const code = document.getElementById(`edit-code-${id}`).value.trim();
     const photo = document.getElementById(`edit-photo-${id}`).value;
+    const purchased = document.getElementById(`edit-purchased-${id}`).value; // "YYYY-MM" or ""
+    const notes = document.getElementById(`edit-notes-${id}`).value.trim();
     if (!brand || !type || !color){
       alert('Brand, type, and color can\'t be empty.');
       return;
     }
     overrides[id] = { brand, type, color, swatchColor, material: material || 'Unspecified', code, photo };
-    await saveOverrides();
+    if (purchased) purchasedDates[id] = purchased; else delete purchasedDates[id];
+    if (notes) itemNotes[id] = notes; else delete itemNotes[id];
+    await Promise.all([saveOverrides(), savePurchasedDates(), saveItemNotes()]);
     editingId = null;
     populateFilters();
     render();
@@ -1260,8 +1343,10 @@ document.addEventListener('click', async (e) => {
     delete wearlog[id];
     delete activated[id];
     delete overrides[id];
+    delete purchasedDates[id];
+    delete itemNotes[id];
     if (editingId === id) editingId = null;
-    await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides()]);
+    await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides(), savePurchasedDates(), saveItemNotes()]);
     populateFilters();
     render();
   }
@@ -1306,6 +1391,7 @@ document.getElementById('tab-reserve').addEventListener('click', () => setTab('r
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('filterColor').addEventListener('change', render);
 document.getElementById('filterBrand').addEventListener('change', render);
+document.getElementById('filterPurchaseYear').addEventListener('change', render);
 document.getElementById('sortMode').addEventListener('change', (e) => {
   sortMode = e.target.value;
   render();
@@ -1337,7 +1423,7 @@ document.getElementById('cancelAddBtn').addEventListener('click', () => {
   clearAddForm();
 });
 function clearAddForm(){
-  ['f-brand','f-type','f-color','f-swatch-color','f-material','f-code','f-photo'].forEach(id => document.getElementById(id).value = '');
+  ['f-brand','f-type','f-color','f-swatch-color','f-material','f-code','f-photo','f-purchased','f-notes'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-isnew').checked = false;
   document.getElementById('f-remove-bg').checked = true;
   document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
@@ -1352,6 +1438,8 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
   const material = document.getElementById('f-material').value.trim();
   const code = document.getElementById('f-code').value.trim();
   const photo = document.getElementById('f-photo').value;
+  const purchased = document.getElementById('f-purchased').value; // "YYYY-MM" or ""
+  const notes = document.getElementById('f-notes').value.trim();
   const isNew = document.getElementById('f-isnew').checked;
 
   if (!brand || !type || !color){
@@ -1361,7 +1449,9 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
 
   const id = 'custom' + Date.now() + Math.floor(Math.random() * 1000);
   customItems.push({ id, brand, type, material: material || 'Unspecified', color, swatchColor, code, photo, isNew });
-  await saveCustomItems();
+  if (purchased) purchasedDates[id] = purchased;
+  if (notes) itemNotes[id] = notes;
+  await Promise.all([saveCustomItems(), savePurchasedDates(), saveItemNotes()]);
   clearAddForm();
   addPanel.classList.remove('open');
   populateFilters();
@@ -1376,7 +1466,7 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
     try {
       await withTimeout(loadState(), 3000);
     } catch(e){
-      wearlog = {}; activated = {}; customItems = []; deletedIds = {}; overrides = {}; storageMode = 'memory';
+      wearlog = {}; activated = {}; customItems = []; deletedIds = {}; overrides = {}; purchasedDates = {}; itemNotes = {}; storageMode = 'memory';
     }
     populateFilters();
     updateStorageNote();
