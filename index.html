@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260728040406">
+<meta name="app-version" content="20260729010837">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -827,25 +827,28 @@ async function storageGet(key){
       storageMode = 'supabase';
       let localV = null;
       try { localV = localStorage.getItem('wardrobe:' + key); } catch(e){}
-      const localTs = getLocalTs(key);
 
       if (remote && remote.value != null){
-        const remoteTs = remote.updatedAt ? new Date(remote.updatedAt).getTime() : 0;
-        if (localV != null && localTs && localTs > remoteTs){
-          // This browser wrote something more recently than whatever
-          // Supabase currently has on file — most likely an earlier push
-          // to Supabase silently failed (e.g. a network blip) while the
-          // local write still succeeded. Don't let the older remote copy
-          // win: keep using local, and try again to push it up.
+        // Only prefer local over remote when we have a POSITIVE, unambiguous
+        // signal that this exact browser has a write Supabase never received
+        // (the pending flag, set only at the moment a real push actually
+        // failed). Deliberately NOT using a timestamp comparison here —
+        // comparing this browser's clock against Supabase's server clock is
+        // inherently a little fuzzy (drift, parsing edge cases, races
+        // between tabs), which is exactly the kind of thing that could make
+        // a fresh load only "sometimes" show the right data. The pending
+        // flag has no such ambiguity: either our own code observed a push
+        // fail, or it didn't.
+        if (localV != null && hasPendingFlag(key)){
           try { await supabaseSet(key, localV); clearPendingFlag(key); }
           catch(e){ setPendingFlag(key); }
           return localV;
         }
-        // Remote is at least as new as anything we have — trust it, and
-        // refresh the local cache (with a matching timestamp) to match.
+        // No known pending write from this device — remote is authoritative,
+        // full stop. Every normal load takes this path.
         try {
           localStorage.setItem('wardrobe:' + key, remote.value);
-          setLocalTs(key, remoteTs || Date.now());
+          setLocalTs(key, Date.now());
         } catch(e){}
         clearPendingFlag(key);
         return remote.value;
@@ -934,13 +937,84 @@ async function loadState(){
   itemNotes = notes ? JSON.parse(notes) : {};
 }
 
-async function saveWearlog(){ await storageSet('wearlog', JSON.stringify(wearlog)); updateStorageNote(); }
-async function saveActivated(){ await storageSet('activated', JSON.stringify(activated)); updateStorageNote(); }
-async function saveCustomItems(){ await storageSet('customItems', JSON.stringify(customItems)); updateStorageNote(); }
-async function saveDeletedIds(){ await storageSet('deletedIds', JSON.stringify(deletedIds)); updateStorageNote(); }
-async function saveOverrides(){ await storageSet('overrides', JSON.stringify(overrides)); updateStorageNote(); }
-async function savePurchasedDates(){ await storageSet('purchasedDates', JSON.stringify(purchasedDates)); updateStorageNote(); }
-async function saveItemNotes(){ await storageSet('itemNotes', JSON.stringify(itemNotes)); updateStorageNote(); }
+// --- Merge-before-write ---
+// Every one of these keys is stored as ONE JSON blob per key, not as
+// separate per-item rows. That means saving from a browser tab that's been
+// open a while (and hasn't seen a change made from another device in the
+// meantime) will, by default, overwrite Supabase with an outdated snapshot
+// — silently erasing the other device's addition, even though nothing
+// "failed" and no error was ever thrown. This is a different failure mode
+// from a network write failing (handled separately via the pending flag)
+// and needs a different fix: pull the current remote value immediately
+// before writing, and fold in anything present remotely but missing from
+// our own in-memory copy, rather than blindly trusting what this tab
+// happened to have loaded.
+async function mergeRemoteInto(key, target, mergeFn){
+  if (!(SUPABASE_URL && SUPABASE_KEY)) return;
+  try {
+    const remote = await supabaseGet(key);
+    if (remote && remote.value != null){
+      mergeFn(target, JSON.parse(remote.value));
+    }
+  } catch(e){ /* best-effort only — if this fails, proceed with local data as before */ }
+}
+// Adds any remote-only keys into target without touching keys target
+// already has (so this tab's own intended edits still win for those).
+function mergeObjectAdditive(target, remoteObj){
+  Object.keys(remoteObj || {}).forEach(k => {
+    if (!(k in target)) target[k] = remoteObj[k];
+  });
+}
+// Adds any remote-only array entries (by id) that this tab doesn't have.
+function mergeArrayById(target, remoteArr){
+  const ids = new Set(target.map(i => i.id));
+  (remoteArr || []).forEach(item => { if (!ids.has(item.id)) target.push(item); });
+}
+// wearlog is date-arrays keyed by item id — union the date arrays per item,
+// same merge semantics as manual JSON import already uses.
+function mergeWearlog(target, remoteObj){
+  Object.keys(remoteObj || {}).forEach(id => {
+    const remoteDates = Array.isArray(remoteObj[id]) ? remoteObj[id] : [remoteObj[id]];
+    const existing = Array.isArray(target[id]) ? target[id] : [];
+    target[id] = [...new Set([...existing, ...remoteDates])].sort();
+  });
+}
+
+async function saveWearlog(){
+  await mergeRemoteInto('wearlog', wearlog, mergeWearlog);
+  await storageSet('wearlog', JSON.stringify(wearlog));
+  updateStorageNote();
+}
+async function saveActivated(){
+  await mergeRemoteInto('activated', activated, mergeObjectAdditive);
+  await storageSet('activated', JSON.stringify(activated));
+  updateStorageNote();
+}
+async function saveCustomItems(){
+  await mergeRemoteInto('customItems', customItems, mergeArrayById);
+  await storageSet('customItems', JSON.stringify(customItems));
+  updateStorageNote();
+}
+async function saveDeletedIds(){
+  await mergeRemoteInto('deletedIds', deletedIds, mergeObjectAdditive);
+  await storageSet('deletedIds', JSON.stringify(deletedIds));
+  updateStorageNote();
+}
+async function saveOverrides(){
+  await mergeRemoteInto('overrides', overrides, mergeObjectAdditive);
+  await storageSet('overrides', JSON.stringify(overrides));
+  updateStorageNote();
+}
+async function savePurchasedDates(){
+  await mergeRemoteInto('purchasedDates', purchasedDates, mergeObjectAdditive);
+  await storageSet('purchasedDates', JSON.stringify(purchasedDates));
+  updateStorageNote();
+}
+async function saveItemNotes(){
+  await mergeRemoteInto('itemNotes', itemNotes, mergeObjectAdditive);
+  await storageSet('itemNotes', JSON.stringify(itemNotes));
+  updateStorageNote();
+}
 
 function updateStorageNote(){
   const el = document.getElementById('storagenote');
