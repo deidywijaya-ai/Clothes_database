@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260729034242">
+<meta name="app-version" content="20260729071811">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -103,6 +103,7 @@
     padding:14px 16px;
   }
   .stat .n{font-family:'Fraunces',serif;font-size:26px;font-weight:600;line-height:1;}
+  .stat .n-sub{font-size:16px;font-weight:500;color:var(--muted);}
   .stat .l{font-size:12px;color:var(--muted);margin-top:6px;}
   .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:1.25rem;}
   .tab{
@@ -480,6 +481,14 @@ function startOfWeekISO(offsetWeeks){
   const diffToMonday = dow === 0 ? 6 : dow - 1;
   const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - diffToMonday + (offsetWeeks * 7));
   return isoFromDate(monday);
+}
+
+function startOfMonthISO(offsetMonths){
+  // offsetMonths=0 is this month, -1 is last month, etc.
+  offsetMonths = offsetMonths || 0;
+  const d = new Date();
+  const first = new Date(d.getFullYear(), d.getMonth() + offsetMonths, 1);
+  return isoFromDate(first);
 }
 
 function daysSince(iso){
@@ -1168,15 +1177,25 @@ function renderStats(){
     dates.some(d => d >= lastWeekStart && d < thisWeekStart)
   ).length;
 
+  const thisMonthStart = startOfMonthISO(0);
+  const monthCount = Object.values(wearlog).filter(dates =>
+    dates.length && dates[dates.length - 1] >= thisMonthStart
+  ).length;
+
+  const lastMonthStart = startOfMonthISO(-1);
+  const lastMonthCount = Object.values(wearlog).filter(dates =>
+    dates.some(d => d >= lastMonthStart && d < thisMonthStart)
+  ).length;
+
   const stats = [
     {n: total, l:'Total items'},
     {n: activeCount, l:'Active rotation'},
     {n: reserveCount, l:'In reserve'},
-    {n: weekCount, l:'Worn this week'},
-    {n: lastWeekCount, l:'Worn last week'}
+    {n: weekCount, sub: lastWeekCount, l:'Worn this week (last week)'},
+    {n: monthCount, sub: lastMonthCount, l:'Worn this month (last month)'}
   ];
   document.getElementById('stats').innerHTML = stats.map(s =>
-    `<div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`
+    `<div class="stat"><div class="n">${s.n}${s.sub !== undefined ? ` <span class="n-sub">(${s.sub})</span>` : ''}</div><div class="l">${s.l}</div></div>`
   ).join('');
 }
 
