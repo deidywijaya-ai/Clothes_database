@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260729024115">
+<meta name="app-version" content="20260729034242">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -799,7 +799,7 @@ async function supabaseGet(key){
   const resp = await withTimeout(fetch(url, {
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
     cache: 'no-store'
-  }), 4000);
+  }), 12000);
   if (!resp.ok) throw new Error('supabase get ' + resp.status);
   const rows = await resp.json();
   if (!rows.length) return null;
@@ -938,23 +938,24 @@ async function storageSet(key, value){
 }
 
 async function loadState(){
-  const w = await storageGet('wearlog');
+  // Fetch all keys in PARALLEL rather than one-await-after-another. The old
+  // sequential version meant seven separate round-trips to Supabase stacked
+  // end to end; on a cold or slow connection their combined time easily blew
+  // past the startup timeout, causing the whole load to bail out to stale
+  // local data (or empty). In parallel, total wait is ~the slowest single
+  // fetch, not the sum of all seven.
+  const keys = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes'];
+  const [w, a, c, d, ov, pd, notes] = await Promise.all(keys.map(k => storageGet(k)));
+
   wearlog = w ? JSON.parse(w) : {};
-  // migrate legacy format where wearlog[id] was a single date string
   Object.keys(wearlog).forEach(id => {
     if (typeof wearlog[id] === 'string') wearlog[id] = [wearlog[id]];
   });
-  const a = await storageGet('activated');
   activated = a ? JSON.parse(a) : {};
-  const c = await storageGet('customItems');
   customItems = c ? JSON.parse(c) : [];
-  const d = await storageGet('deletedIds');
   deletedIds = d ? JSON.parse(d) : {};
-  const ov = await storageGet('overrides');
   overrides = ov ? JSON.parse(ov) : {};
-  const pd = await storageGet('purchasedDates');
   purchasedDates = pd ? JSON.parse(pd) : {};
-  const notes = await storageGet('itemNotes');
   itemNotes = notes ? JSON.parse(notes) : {};
 }
 
@@ -1630,14 +1631,44 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
     document.getElementById('todayline').textContent =
       new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
     document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
+    let loadTimedOut = false;
     try {
-      await withTimeout(loadState(), 3000);
+      // 15s (not 3s) because the load now fires all fetches in parallel, so
+      // this only needs to cover the single slowest fetch plus overhead, not
+      // seven stacked round-trips. A cold mobile connection can genuinely
+      // take several seconds for the first request; cutting it off at 3s was
+      // the main reason the first load so often fell back to stale data.
+      await withTimeout(loadState(), 15000);
     } catch(e){
-      wearlog = {}; activated = {}; customItems = []; deletedIds = {}; overrides = {}; purchasedDates = {}; itemNotes = {}; storageMode = 'memory';
+      loadTimedOut = true;
+      // Do NOT wipe to empty here. Render whatever we've got (likely the
+      // local cache) so the app is usable, but remember that we did NOT get
+      // a confirmed-fresh load, and retry in the background below.
     }
     populateFilters();
     updateStorageNote();
     render();
+
+    if (loadTimedOut){
+      // Self-correcting retry: the first attempt didn't confirm fresh data
+      // within the window, so try again in the background (no timeout this
+      // time) and re-render if/when the real data arrives. This is what
+      // makes the stale-first-load fix itself instead of requiring you to
+      // manually refresh one or more times.
+      (async function backgroundRetry(){
+        for (let attempt = 0; attempt < 3; attempt++){
+          try {
+            await loadState();
+            populateFilters();
+            updateStorageNote();
+            render();
+            return;
+          } catch(e){
+            await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+          }
+        }
+      })();
+    }
   } catch(err){
     document.getElementById('todayline').textContent = 'Something went wrong loading this tracker.';
     document.getElementById('stats').innerHTML =
