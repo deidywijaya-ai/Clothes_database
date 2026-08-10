@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260729082914">
+<meta name="app-version" content="20260810160000">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -447,6 +447,18 @@ let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom)
 let overrides = {};    // itemId -> partial {brand,type,material,color,code} edits
 let purchasedDates = {}; // itemId -> "YYYY-MM" string (month + year only, no day)
 let itemNotes = {};    // itemId -> free-text notes string
+// Tombstones: records of deliberate LOCAL removals, so the merge-before-write
+// logic (which additively folds remote data back into what we're about to
+// push) can't silently resurrect something the user just deleted. Without
+// this, e.g. "Undo last" would pop a date locally, then saveWearlog's
+// reconcile-before-push step would re-fetch Supabase (which still has the
+// old date, since it hasn't been told about the removal yet), union it back
+// in, and push the union — making Undo look like it "didn't work."
+// wearlogDates: itemId -> [dates ever removed]. purchasedDates/itemNotes:
+// itemId -> true, meaning "this id's value was deliberately cleared."
+// Tombstones only ever grow (that's correct for their purpose, same as
+// deletedIds), so a plain additive merge across devices is fine for them.
+let tombstones = { wearlogDates: {}, purchasedDates: {}, itemNotes: {} };
 let currentTab = 'active';
 let sortMode = 'overdue'; // 'overdue' | 'last-worn' | 'most-worn' | 'least-worn'
 let editingId = null;  // id of item currently being edited inline, or null
@@ -799,7 +811,7 @@ function clearPendingFlag(key){
 function hasPendingFlag(key){
   try { return !!localStorage.getItem('wardrobe:pending:' + key); } catch(e){ return false; }
 }
-const STORAGE_KEYS = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes'];
+const STORAGE_KEYS = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes','tombstones'];
 function anyPendingFlags(){
   return STORAGE_KEYS.some(hasPendingFlag);
 }
@@ -948,12 +960,22 @@ async function storageSet(key, value){
 }
 
 async function loadState(){
-  // Fetch all keys in PARALLEL rather than one-await-after-another. The old
-  // sequential version meant seven separate round-trips to Supabase stacked
-  // end to end; on a cold or slow connection their combined time easily blew
-  // past the startup timeout, causing the whole load to bail out to stale
-  // local data (or empty). In parallel, total wait is ~the slowest single
-  // fetch, not the sum of all seven.
+  // Tombstones are fetched first (and awaited on its own) because the merge
+  // functions below read the `tombstones` global directly — if it fetched in
+  // the same Promise.all as everything else, a race could let e.g. wearlog's
+  // merge run before tombstones has actually landed.
+  const tb = await storageGet('tombstones');
+  tombstones = tb ? JSON.parse(tb) : { wearlogDates: {}, purchasedDates: {}, itemNotes: {} };
+  if (!tombstones.wearlogDates) tombstones.wearlogDates = {};
+  if (!tombstones.purchasedDates) tombstones.purchasedDates = {};
+  if (!tombstones.itemNotes) tombstones.itemNotes = {};
+
+  // Fetch the rest of the keys in PARALLEL rather than one-await-after-
+  // another. The old sequential version meant separate round-trips to
+  // Supabase stacked end to end; on a cold or slow connection their combined
+  // time easily blew past the startup timeout, causing the whole load to
+  // bail out to stale local data (or empty). In parallel, total wait is ~the
+  // slowest single fetch, not the sum of all of them.
   const keys = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes'];
   const [w, a, c, d, ov, pd, notes] = await Promise.all(keys.map(k => storageGet(k)));
 
@@ -994,8 +1016,9 @@ const KEY_MERGE_FNS = {
   customItems: mergeArrayById,
   deletedIds: mergeObjectAdditive,
   overrides: mergeObjectAdditive,
-  purchasedDates: mergeObjectAdditive,
-  itemNotes: mergeObjectAdditive
+  purchasedDates: mergePurchasedDates,
+  itemNotes: mergeItemNotes,
+  tombstones: mergeTombstones
 };
 
 async function saveKeySafely(key, target, mergeFn){
@@ -1035,12 +1058,44 @@ function mergeArrayById(target, remoteArr){
   (remoteArr || []).forEach(item => { if (!ids.has(item.id)) target.push(item); });
 }
 // wearlog is date-arrays keyed by item id — union the date arrays per item,
-// same merge semantics as manual JSON import already uses.
+// same merge semantics as manual JSON import already uses, EXCEPT any date
+// tombstoned for that id (deliberately removed locally via Undo/remove-date)
+// is excluded from the union rather than being pulled back in from remote.
 function mergeWearlog(target, remoteObj){
   Object.keys(remoteObj || {}).forEach(id => {
     const remoteDates = Array.isArray(remoteObj[id]) ? remoteObj[id] : [remoteObj[id]];
     const existing = Array.isArray(target[id]) ? target[id] : [];
-    target[id] = [...new Set([...existing, ...remoteDates])].sort();
+    const removedForId = new Set(tombstones.wearlogDates[id] || []);
+    target[id] = [...new Set([...existing, ...remoteDates])]
+      .filter(d => !removedForId.has(d))
+      .sort();
+  });
+}
+// Same idea as mergeObjectAdditive, but an id tombstoned in
+// tombstones.purchasedDates is never pulled back in from remote — it was
+// deliberately cleared locally.
+function mergePurchasedDates(target, remoteObj){
+  Object.keys(remoteObj || {}).forEach(k => {
+    if (tombstones.purchasedDates[k]) return;
+    if (!(k in target)) target[k] = remoteObj[k];
+  });
+}
+function mergeItemNotes(target, remoteObj){
+  Object.keys(remoteObj || {}).forEach(k => {
+    if (tombstones.itemNotes[k]) return;
+    if (!(k in target)) target[k] = remoteObj[k];
+  });
+}
+// Tombstones themselves only ever grow — a plain additive union (per
+// section, and per-id date-array union for wearlogDates) is correct here.
+function mergeTombstones(target, remoteObj){
+  if (!remoteObj) return;
+  Object.keys(remoteObj.wearlogDates || {}).forEach(id => {
+    const existing = target.wearlogDates[id] || [];
+    target.wearlogDates[id] = [...new Set([...existing, ...remoteObj.wearlogDates[id]])];
+  });
+  ['purchasedDates', 'itemNotes'].forEach(section => {
+    Object.keys(remoteObj[section] || {}).forEach(id => { target[section][id] = true; });
   });
 }
 
@@ -1049,8 +1104,9 @@ async function saveActivated(){ await saveKeySafely('activated', activated, merg
 async function saveCustomItems(){ await saveKeySafely('customItems', customItems, mergeArrayById); }
 async function saveDeletedIds(){ await saveKeySafely('deletedIds', deletedIds, mergeObjectAdditive); }
 async function saveOverrides(){ await saveKeySafely('overrides', overrides, mergeObjectAdditive); }
-async function savePurchasedDates(){ await saveKeySafely('purchasedDates', purchasedDates, mergeObjectAdditive); }
-async function saveItemNotes(){ await saveKeySafely('itemNotes', itemNotes, mergeObjectAdditive); }
+async function savePurchasedDates(){ await saveKeySafely('purchasedDates', purchasedDates, mergePurchasedDates); }
+async function saveItemNotes(){ await saveKeySafely('itemNotes', itemNotes, mergeItemNotes); }
+async function saveTombstones(){ await saveKeySafely('tombstones', tombstones, mergeTombstones); }
 
 function updateStorageNote(){
   const el = document.getElementById('storagenote');
@@ -1457,6 +1513,9 @@ document.addEventListener('click', async (e) => {
   } else if (action === 'undo'){
     if (wearlog[id] && wearlog[id].length){
       const removed = wearlog[id].pop();
+      if (!tombstones.wearlogDates[id]) tombstones.wearlogDates[id] = [];
+      if (!tombstones.wearlogDates[id].includes(removed)) tombstones.wearlogDates[id].push(removed);
+      await saveTombstones();
       await saveWearlog();
       render();
     }
@@ -1476,6 +1535,9 @@ document.addEventListener('click', async (e) => {
     if (!wearlog[id]) return;
     if (!confirm(`Remove ${formatDate(date)} from this item's wear history?`)) return;
     wearlog[id] = wearlog[id].filter(d => d !== date);
+    if (!tombstones.wearlogDates[id]) tombstones.wearlogDates[id] = [];
+    if (!tombstones.wearlogDates[id].includes(date)) tombstones.wearlogDates[id].push(date);
+    await saveTombstones();
     await saveWearlog();
     render();
   } else if (action === 'activate'){
@@ -1519,8 +1581,20 @@ document.addEventListener('click', async (e) => {
       return;
     }
     overrides[id] = { brand, type, color, swatchColor, material: material || 'Unspecified', code, photo };
-    if (purchased) purchasedDates[id] = purchased; else delete purchasedDates[id];
-    if (notes) itemNotes[id] = notes; else delete itemNotes[id];
+    let tombstonesChanged = false;
+    if (purchased) { purchasedDates[id] = purchased; }
+    else if (id in purchasedDates || tombstones.purchasedDates[id] !== true) {
+      delete purchasedDates[id];
+      tombstones.purchasedDates[id] = true;
+      tombstonesChanged = true;
+    }
+    if (notes) { itemNotes[id] = notes; }
+    else if (id in itemNotes || tombstones.itemNotes[id] !== true) {
+      delete itemNotes[id];
+      tombstones.itemNotes[id] = true;
+      tombstonesChanged = true;
+    }
+    if (tombstonesChanged) await saveTombstones();
     await Promise.all([saveOverrides(), savePurchasedDates(), saveItemNotes()]);
     editingId = null;
     populateFilters();
