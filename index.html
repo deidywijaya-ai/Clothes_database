@@ -1058,17 +1058,32 @@ function mergeArrayById(target, remoteArr){
   (remoteArr || []).forEach(item => { if (!ids.has(item.id)) target.push(item); });
 }
 // wearlog is date-arrays keyed by item id — union the date arrays per item,
-// same merge semantics as manual JSON import already uses, EXCEPT any date
+// same merge semantics as manual JSON import already uses, EXCEPT a date
 // tombstoned for that id (deliberately removed locally via Undo/remove-date)
-// is excluded from the union rather than being pulled back in from remote.
+// is never pulled back in FROM REMOTE.
+//
+// Important: the tombstone only blocks resurrection from remote — it must
+// NOT strip a date that's already present in `target` (the local copy)
+// itself. `target` here is the live in-memory wearlog, so if the user just
+// re-added the same date locally (e.g. Undo, then Mark worn again the same
+// day), that date is already sitting in `existing` at merge time and has to
+// survive the merge. An earlier version filtered tombstoned dates out of
+// the whole union indiscriminately, which also deleted this kind of fresh
+// local re-add — making "Mark worn" silently no-op after an Undo on the
+// same date.
 function mergeWearlog(target, remoteObj){
   Object.keys(remoteObj || {}).forEach(id => {
     const remoteDates = Array.isArray(remoteObj[id]) ? remoteObj[id] : [remoteObj[id]];
     const existing = Array.isArray(target[id]) ? target[id] : [];
+    const existingSet = new Set(existing);
     const removedForId = new Set(tombstones.wearlogDates[id] || []);
-    target[id] = [...new Set([...existing, ...remoteDates])]
-      .filter(d => !removedForId.has(d))
-      .sort();
+    const merged = new Set(existing);
+    remoteDates.forEach(d => {
+      if (existingSet.has(d)) return;       // already present locally — nothing to decide
+      if (removedForId.has(d)) return;      // tombstoned and not currently present locally — don't resurrect
+      merged.add(d);
+    });
+    target[id] = [...merged].sort();
   });
 }
 // Same idea as mergeObjectAdditive, but an id tombstoned in
@@ -1107,6 +1122,23 @@ async function saveOverrides(){ await saveKeySafely('overrides', overrides, merg
 async function savePurchasedDates(){ await saveKeySafely('purchasedDates', purchasedDates, mergePurchasedDates); }
 async function saveItemNotes(){ await saveKeySafely('itemNotes', itemNotes, mergeItemNotes); }
 async function saveTombstones(){ await saveKeySafely('tombstones', tombstones, mergeTombstones); }
+
+// Clears a date from an item's removal-tombstone list, if present. Called
+// whenever a date is (re-)added to wearlog, so a date that was undone and
+// then deliberately re-logged doesn't carry a stale tombstone forward
+// forever. Not strictly required for correctness (mergeWearlog already
+// treats "present locally" as taking precedence over any tombstone), but
+// keeps the tombstone list from growing with entries that no longer mean
+// anything, and keeps its state honest.
+async function untombstoneWearDate(id, date){
+  const list = tombstones.wearlogDates[id];
+  if (!list) return;
+  const idx = list.indexOf(date);
+  if (idx === -1) return;
+  list.splice(idx, 1);
+  if (list.length === 0) delete tombstones.wearlogDates[id];
+  await saveTombstones();
+}
 
 function updateStorageNote(){
   const el = document.getElementById('storagenote');
@@ -1507,6 +1539,7 @@ document.addEventListener('click', async (e) => {
     if (!wearlog[id]) wearlog[id] = [];
     if (wearlog[id][wearlog[id].length - 1] !== today){
       wearlog[id].push(today);
+      await untombstoneWearDate(id, today);
       await saveWearlog();
       render();
     }
@@ -1528,6 +1561,7 @@ document.addEventListener('click', async (e) => {
     if (wearlog[id].includes(val)){ alert('That date is already logged for this item.'); return; }
     wearlog[id].push(val);
     wearlog[id].sort();
+    await untombstoneWearDate(id, val);
     await saveWearlog();
     render();
   } else if (action === 'remove-date'){
