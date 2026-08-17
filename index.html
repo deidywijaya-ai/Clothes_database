@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260810160000">
+<meta name="app-version" content="20260817121500">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -458,7 +458,7 @@ let itemNotes = {};    // itemId -> free-text notes string
 // itemId -> true, meaning "this id's value was deliberately cleared."
 // Tombstones only ever grow (that's correct for their purpose, same as
 // deletedIds), so a plain additive merge across devices is fine for them.
-let tombstones = { wearlogDates: {}, purchasedDates: {}, itemNotes: {} };
+let tombstones = { wearlogDates: {}, purchasedDates: {}, itemNotes: {}, activated: {} };
 let currentTab = 'active';
 let sortMode = 'overdue'; // 'overdue' | 'last-worn' | 'most-worn' | 'least-worn'
 let editingId = null;  // id of item currently being edited inline, or null
@@ -969,6 +969,7 @@ async function loadState(){
   if (!tombstones.wearlogDates) tombstones.wearlogDates = {};
   if (!tombstones.purchasedDates) tombstones.purchasedDates = {};
   if (!tombstones.itemNotes) tombstones.itemNotes = {};
+  if (!tombstones.activated) tombstones.activated = {};
 
   // Fetch the rest of the keys in PARALLEL rather than one-await-after-
   // another. The old sequential version meant separate round-trips to
@@ -1012,7 +1013,7 @@ async function loadState(){
 // reconcile-then-push cycle.
 const KEY_MERGE_FNS = {
   wearlog: mergeWearlog,
-  activated: mergeObjectAdditive,
+  activated: mergeActivated,
   customItems: mergeArrayById,
   deletedIds: mergeObjectAdditive,
   overrides: mergeObjectAdditive,
@@ -1101,6 +1102,19 @@ function mergeItemNotes(target, remoteObj){
     if (!(k in target)) target[k] = remoteObj[k];
   });
 }
+// activated[id]=true marks an item pulled out of Reserve into active
+// rotation. "Return to reserve" deletes the key locally — an id tombstoned
+// here is never pulled back in from remote, same reasoning as
+// mergePurchasedDates/mergeItemNotes above. (No extra "already present
+// locally" nuance is needed the way mergeWearlog needs it: this is a single
+// boolean per id, not an array, so `!(k in target)` alone already lets a
+// fresh local re-activation win outright.)
+function mergeActivated(target, remoteObj){
+  Object.keys(remoteObj || {}).forEach(k => {
+    if (tombstones.activated[k]) return;
+    if (!(k in target)) target[k] = remoteObj[k];
+  });
+}
 // Tombstones themselves only ever grow — a plain additive union (per
 // section, and per-id date-array union for wearlogDates) is correct here.
 function mergeTombstones(target, remoteObj){
@@ -1109,13 +1123,13 @@ function mergeTombstones(target, remoteObj){
     const existing = target.wearlogDates[id] || [];
     target.wearlogDates[id] = [...new Set([...existing, ...remoteObj.wearlogDates[id]])];
   });
-  ['purchasedDates', 'itemNotes'].forEach(section => {
+  ['purchasedDates', 'itemNotes', 'activated'].forEach(section => {
     Object.keys(remoteObj[section] || {}).forEach(id => { target[section][id] = true; });
   });
 }
 
 async function saveWearlog(){ await saveKeySafely('wearlog', wearlog, mergeWearlog); }
-async function saveActivated(){ await saveKeySafely('activated', activated, mergeObjectAdditive); }
+async function saveActivated(){ await saveKeySafely('activated', activated, mergeActivated); }
 async function saveCustomItems(){ await saveKeySafely('customItems', customItems, mergeArrayById); }
 async function saveDeletedIds(){ await saveKeySafely('deletedIds', deletedIds, mergeObjectAdditive); }
 async function saveOverrides(){ await saveKeySafely('overrides', overrides, mergeObjectAdditive); }
@@ -1401,6 +1415,10 @@ function cardHTML(item){
     ? `<button class="btn primary" data-action="activate" data-id="${item.id}">Activate</button>`
     : `<button class="btn primary" data-action="wear" data-id="${item.id}" ${wornToday ? 'disabled' : ''}>${wornToday ? 'Worn today' : 'Mark worn'}</button>`;
 
+  const returnToReserveBtn = (item.isNew && !isReserve(item) && count === 0)
+    ? `<button class="btn small" data-action="deactivate" data-id="${item.id}" title="Move back to Reserve">Return to reserve</button>`
+    : '';
+
   const undoBtn = count
     ? `<button class="btn small" data-action="undo" data-id="${item.id}">Undo last</button>`
     : '';
@@ -1442,6 +1460,7 @@ function cardHTML(item){
       <div class="btn-row">
         ${wearBtn}
         ${undoBtn}
+        ${returnToReserveBtn}
         ${editBtn}
         ${deleteBtn}
       </div>
@@ -1576,6 +1595,33 @@ document.addEventListener('click', async (e) => {
     render();
   } else if (action === 'activate'){
     activated[id] = true;
+    // Re-activating un-does any earlier "return to reserve" for this id —
+    // clear its tombstone so a stale remote copy can't fight this change,
+    // and so the tombstone doesn't linger with stale meaning.
+    if (tombstones.activated[id]){
+      delete tombstones.activated[id];
+      await saveTombstones();
+    }
+    await saveActivated();
+    render();
+  } else if (action === 'deactivate'){
+    // Guarded here too, not just by hiding the button — the button is only
+    // ever rendered when wear count is 0, but this is a second, independent
+    // check so this action can never fire against an item with wear
+    // history, regardless of how it's triggered.
+    if (wearlog[id] && wearlog[id].length > 0){
+      alert('This item has wear history logged, so it can\'t be returned to Reserve. Delete its wear history first if you really want to move it back.');
+      return;
+    }
+    // Move an item back to Reserve. `activated` is normally an additive-only
+    // map (mergeObjectAdditive), so just deleting the key here isn't enough
+    // on its own — the very next save's reconcile-before-push step would
+    // pull `activated[id]: true` right back in from Supabase (same class of
+    // bug as the wear-date Undo issue), making this look like it silently
+    // failed. Tombstone the id first so the merge knows not to resurrect it.
+    delete activated[id];
+    tombstones.activated[id] = true;
+    await saveTombstones();
     await saveActivated();
     render();
   } else if (action === 'edit'){
