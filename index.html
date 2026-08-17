@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260817121500">
+<meta name="app-version" content="20260817140000">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -384,6 +384,7 @@
     <button class="tab active" data-tab="active" id="tab-active">Active rotation</button>
     <button class="tab" data-tab="reserve" id="tab-reserve">Reserve (new)</button>
     <button class="tab" data-tab="all" id="tab-all">All</button>
+    <button class="tab" data-tab="deleted" id="tab-deleted">Deleted items</button>
   </div>
 
   <div class="controls">
@@ -404,6 +405,10 @@
   <p class="sortline">
     <span id="sortlinetext"></span>
   </p>
+
+  <div id="bulkPurgeRow" style="display:none; justify-content:flex-end; margin-bottom:0.75rem;">
+    <button class="btn ghost small" id="purgeAllBtn" data-action="purge-all" style="color:var(--rust);">Permanently delete all shown</button>
+  </div>
 
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none;">No items match this filter.</div>
@@ -443,7 +448,10 @@ function displayHex(item){
 let wearlog = {};      // itemId -> array of ISO date strings, oldest first
 let activated = {};    // itemId -> true, if moved out of reserve
 let customItems = [];  // user-added items
-let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom)
+let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom). Data (wearlog,
+                        // overrides, etc.) is preserved so a soft-deleted item can be restored.
+let purgedIds = {};    // itemId -> true, PERMANENTLY deleted from "Deleted items". Its data
+                        // has been actively wiped and this can never be undone.
 let overrides = {};    // itemId -> partial {brand,type,material,color,code} edits
 let purchasedDates = {}; // itemId -> "YYYY-MM" string (month + year only, no day)
 let itemNotes = {};    // itemId -> free-text notes string
@@ -454,11 +462,14 @@ let itemNotes = {};    // itemId -> free-text notes string
 // reconcile-before-push step would re-fetch Supabase (which still has the
 // old date, since it hasn't been told about the removal yet), union it back
 // in, and push the union — making Undo look like it "didn't work."
-// wearlogDates: itemId -> [dates ever removed]. purchasedDates/itemNotes:
-// itemId -> true, meaning "this id's value was deliberately cleared."
+// wearlogDates: itemId -> [dates ever removed]. purchasedDates/itemNotes/
+// activated/deletedIds: itemId -> true, meaning "this id's flag/value was
+// deliberately cleared locally" (deletedIds here covers "Restore" — un-
+// deleting an item — the same way activated covers "Return to reserve").
 // Tombstones only ever grow (that's correct for their purpose, same as
-// deletedIds), so a plain additive merge across devices is fine for them.
-let tombstones = { wearlogDates: {}, purchasedDates: {}, itemNotes: {}, activated: {} };
+// deletedIds/purgedIds themselves), so a plain additive merge across
+// devices is fine for them.
+let tombstones = { wearlogDates: {}, purchasedDates: {}, itemNotes: {}, activated: {}, deletedIds: {} };
 let currentTab = 'active';
 let sortMode = 'overdue'; // 'overdue' | 'last-worn' | 'most-worn' | 'least-worn'
 let editingId = null;  // id of item currently being edited inline, or null
@@ -811,7 +822,7 @@ function clearPendingFlag(key){
 function hasPendingFlag(key){
   try { return !!localStorage.getItem('wardrobe:pending:' + key); } catch(e){ return false; }
 }
-const STORAGE_KEYS = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes','tombstones'];
+const STORAGE_KEYS = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes','tombstones','purgedIds'];
 function anyPendingFlags(){
   return STORAGE_KEYS.some(hasPendingFlag);
 }
@@ -965,11 +976,12 @@ async function loadState(){
   // the same Promise.all as everything else, a race could let e.g. wearlog's
   // merge run before tombstones has actually landed.
   const tb = await storageGet('tombstones');
-  tombstones = tb ? JSON.parse(tb) : { wearlogDates: {}, purchasedDates: {}, itemNotes: {} };
+  tombstones = tb ? JSON.parse(tb) : { wearlogDates: {}, purchasedDates: {}, itemNotes: {}, activated: {}, deletedIds: {} };
   if (!tombstones.wearlogDates) tombstones.wearlogDates = {};
   if (!tombstones.purchasedDates) tombstones.purchasedDates = {};
   if (!tombstones.itemNotes) tombstones.itemNotes = {};
   if (!tombstones.activated) tombstones.activated = {};
+  if (!tombstones.deletedIds) tombstones.deletedIds = {};
 
   // Fetch the rest of the keys in PARALLEL rather than one-await-after-
   // another. The old sequential version meant separate round-trips to
@@ -977,8 +989,8 @@ async function loadState(){
   // time easily blew past the startup timeout, causing the whole load to
   // bail out to stale local data (or empty). In parallel, total wait is ~the
   // slowest single fetch, not the sum of all of them.
-  const keys = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes'];
-  const [w, a, c, d, ov, pd, notes] = await Promise.all(keys.map(k => storageGet(k)));
+  const keys = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes','purgedIds'];
+  const [w, a, c, d, ov, pd, notes, pg] = await Promise.all(keys.map(k => storageGet(k)));
 
   wearlog = w ? JSON.parse(w) : {};
   Object.keys(wearlog).forEach(id => {
@@ -990,6 +1002,7 @@ async function loadState(){
   overrides = ov ? JSON.parse(ov) : {};
   purchasedDates = pd ? JSON.parse(pd) : {};
   itemNotes = notes ? JSON.parse(notes) : {};
+  purgedIds = pg ? JSON.parse(pg) : {};
 }
 
 // --- Merge-before-write ---
@@ -1015,11 +1028,12 @@ const KEY_MERGE_FNS = {
   wearlog: mergeWearlog,
   activated: mergeActivated,
   customItems: mergeArrayById,
-  deletedIds: mergeObjectAdditive,
+  deletedIds: mergeDeletedIds,
   overrides: mergeObjectAdditive,
   purchasedDates: mergePurchasedDates,
   itemNotes: mergeItemNotes,
-  tombstones: mergeTombstones
+  tombstones: mergeTombstones,
+  purgedIds: mergeObjectAdditive
 };
 
 async function saveKeySafely(key, target, mergeFn){
@@ -1115,6 +1129,16 @@ function mergeActivated(target, remoteObj){
     if (!(k in target)) target[k] = remoteObj[k];
   });
 }
+// deletedIds[id]=true marks an item soft-deleted (moved to "Deleted items").
+// "Restore" deletes the key locally — same reasoning as mergeActivated
+// above: an id tombstoned in tombstones.deletedIds is never pulled back in
+// from remote, so a stale remote copy can't silently un-restore an item.
+function mergeDeletedIds(target, remoteObj){
+  Object.keys(remoteObj || {}).forEach(k => {
+    if (tombstones.deletedIds[k]) return;
+    if (!(k in target)) target[k] = remoteObj[k];
+  });
+}
 // Tombstones themselves only ever grow — a plain additive union (per
 // section, and per-id date-array union for wearlogDates) is correct here.
 function mergeTombstones(target, remoteObj){
@@ -1123,7 +1147,7 @@ function mergeTombstones(target, remoteObj){
     const existing = target.wearlogDates[id] || [];
     target.wearlogDates[id] = [...new Set([...existing, ...remoteObj.wearlogDates[id]])];
   });
-  ['purchasedDates', 'itemNotes', 'activated'].forEach(section => {
+  ['purchasedDates', 'itemNotes', 'activated', 'deletedIds'].forEach(section => {
     Object.keys(remoteObj[section] || {}).forEach(id => { target[section][id] = true; });
   });
 }
@@ -1131,7 +1155,8 @@ function mergeTombstones(target, remoteObj){
 async function saveWearlog(){ await saveKeySafely('wearlog', wearlog, mergeWearlog); }
 async function saveActivated(){ await saveKeySafely('activated', activated, mergeActivated); }
 async function saveCustomItems(){ await saveKeySafely('customItems', customItems, mergeArrayById); }
-async function saveDeletedIds(){ await saveKeySafely('deletedIds', deletedIds, mergeObjectAdditive); }
+async function saveDeletedIds(){ await saveKeySafely('deletedIds', deletedIds, mergeDeletedIds); }
+async function savePurgedIds(){ await saveKeySafely('purgedIds', purgedIds, mergeObjectAdditive); }
 async function saveOverrides(){ await saveKeySafely('overrides', overrides, mergeObjectAdditive); }
 async function savePurchasedDates(){ await saveKeySafely('purchasedDates', purchasedDates, mergePurchasedDates); }
 async function saveItemNotes(){ await saveKeySafely('itemNotes', itemNotes, mergeItemNotes); }
@@ -1188,7 +1213,7 @@ function downloadJSON(filename, obj){
 async function handleExport(){
   downloadJSON('wardrobe-rotation-backup.json', {
     exportedAt: new Date().toISOString(),
-    wearlog, activated, customItems, deletedIds, overrides, purchasedDates, itemNotes
+    wearlog, activated, customItems, deletedIds, purgedIds, overrides, purchasedDates, itemNotes, tombstones
   });
 }
 
@@ -1209,10 +1234,12 @@ async function handleImportFile(file){
       data.customItems.forEach(i => { if (!existingIds.has(i.id)) customItems.push(i); });
     }
     if (data.deletedIds) deletedIds = { ...deletedIds, ...data.deletedIds };
+    if (data.purgedIds) purgedIds = { ...purgedIds, ...data.purgedIds };
     if (data.overrides) overrides = { ...overrides, ...data.overrides };
     if (data.purchasedDates) purchasedDates = { ...purchasedDates, ...data.purchasedDates };
     if (data.itemNotes) itemNotes = { ...itemNotes, ...data.itemNotes };
-    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), saveOverrides(), savePurchasedDates(), saveItemNotes()]);
+    if (data.tombstones) mergeTombstones(tombstones, data.tombstones);
+    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), savePurgedIds(), saveOverrides(), savePurchasedDates(), saveItemNotes(), saveTombstones()]);
     updateStorageNote();
     populateFilters();
     render();
@@ -1224,8 +1251,49 @@ async function handleImportFile(file){
 
 function getAllItems(){
   return BASE_ITEMS.concat(customItems)
-    .filter(i => !deletedIds[i.id])
+    .filter(i => !deletedIds[i.id] && !purgedIds[i.id])
     .map(i => overrides[i.id] ? { ...i, ...overrides[i.id] } : i);
+}
+
+// Items sitting in "Deleted items" — soft-deleted but not yet permanently
+// purged. Their wearlog/overrides/etc. are left fully intact so Restore can
+// bring them back exactly as they were.
+function getDeletedItems(){
+  return BASE_ITEMS.concat(customItems)
+    .filter(i => deletedIds[i.id] && !purgedIds[i.id])
+    .map(i => overrides[i.id] ? { ...i, ...overrides[i.id] } : i);
+}
+
+// Actually, irreversibly wipes an item's data: wearlog, activation state,
+// overrides, purchase date, notes, and (if it's a user-added item) removes
+// it from customItems entirely. Also clears any leftover tombstone entries
+// for the id, since they're meaningless once the item itself is gone.
+// purgedIds[id] is the permanent record that this id is gone for good —
+// unlike deletedIds, it is never un-set, so a plain additive merge for it
+// is correct and no tombstone is needed for purgedIds itself.
+async function purgeItemPermanently(id){
+  purgedIds[id] = true;
+  delete wearlog[id];
+  delete activated[id];
+  delete overrides[id];
+  delete purchasedDates[id];
+  delete itemNotes[id];
+  if (tombstones.wearlogDates) delete tombstones.wearlogDates[id];
+  if (tombstones.activated) delete tombstones.activated[id];
+  if (tombstones.purchasedDates) delete tombstones.purchasedDates[id];
+  if (tombstones.itemNotes) delete tombstones.itemNotes[id];
+  if (tombstones.deletedIds) delete tombstones.deletedIds[id];
+
+  const wasCustom = customItems.some(i => i.id === id);
+  if (wasCustom) customItems = customItems.filter(i => i.id !== id);
+  if (editingId === id) editingId = null;
+
+  const saves = [
+    savePurgedIds(), saveWearlog(), saveActivated(), saveOverrides(),
+    savePurchasedDates(), saveItemNotes(), saveTombstones()
+  ];
+  if (wasCustom) saves.push(saveCustomItems());
+  await Promise.all(saves);
 }
 
 function isReserve(item){
@@ -1270,23 +1338,32 @@ function renderStats(){
   const reserveCount = items.filter(isReserve).length;
   const activeCount = total - reserveCount;
 
+  // Only count wear entries for items that are still visible (not
+  // soft-deleted/purged) — a soft-deleted item keeps its wearlog intact so
+  // it can be restored, but it shouldn't contribute to these stats while
+  // sitting in Deleted items.
+  const visibleIds = new Set(items.map(i => i.id));
+  const visibleWearlogValues = Object.keys(wearlog)
+    .filter(id => visibleIds.has(id))
+    .map(id => wearlog[id]);
+
   const thisWeekStart = startOfWeekISO(0);
-  const weekCount = Object.values(wearlog).filter(dates =>
+  const weekCount = visibleWearlogValues.filter(dates =>
     dates.length && dates[dates.length - 1] >= thisWeekStart
   ).length;
 
   const lastWeekStart = startOfWeekISO(-1);
-  const lastWeekCount = Object.values(wearlog).filter(dates =>
+  const lastWeekCount = visibleWearlogValues.filter(dates =>
     dates.some(d => d >= lastWeekStart && d < thisWeekStart)
   ).length;
 
   const thisMonthStart = startOfMonthISO(0);
-  const monthCount = Object.values(wearlog).filter(dates =>
+  const monthCount = visibleWearlogValues.filter(dates =>
     dates.length && dates[dates.length - 1] >= thisMonthStart
   ).length;
 
   const lastMonthStart = startOfMonthISO(-1);
-  const lastMonthCount = Object.values(wearlog).filter(dates =>
+  const lastMonthCount = visibleWearlogValues.filter(dates =>
     dates.some(d => d >= lastMonthStart && d < thisMonthStart)
   ).length;
 
@@ -1468,19 +1545,52 @@ function cardHTML(item){
   </div>`;
 }
 
+// Card shown in the "Deleted items" tab. Deliberately minimal — no Mark
+// worn / Edit / Undo, since a soft-deleted item shouldn't be actively used.
+// Just enough info to recognize the item, plus Restore and Delete
+// permanently.
+function deletedCardHTML(item){
+  const hex = displayHex(item);
+  const count = (wearlog[item.id] || []).length;
+  return `
+  <div class="card" style="--tagcolor:${hex}; background: color-mix(in srgb, ${hex} 14%, var(--paper)); opacity:0.85;">
+    <div class="card-top">
+      ${item.photo ? `<img src="${item.photo}" class="thumb" alt="">` : `<span class="swatch" style="background:${hex}"></span>`}
+      <div class="titles">
+        <div class="brand">${escapeHTML(item.brand)}</div>
+        <div class="name">${escapeHTML(item.color)} ${escapeHTML(item.type)}</div>
+      </div>
+    </div>
+    <div class="meta">${escapeHTML(item.material)}${item.code ? ' &middot; <code class="tagcode">' + escapeHTML(item.code) + '</code>' : ''}</div>
+    <p class="meta" style="padding-left:6px;margin:0;">Worn ${count} time${count === 1 ? '' : 's'} &middot; history preserved until permanently deleted</p>
+    <div class="status-row">
+      <span class="pill overdue">Deleted</span>
+      <div class="btn-row">
+        <button class="btn primary" data-action="restore" data-id="${item.id}">Restore</button>
+        <button class="btn ghost small" data-action="delete-permanently" data-id="${item.id}" title="Permanently delete" aria-label="Permanently delete">Delete permanently</button>
+      </div>
+    </div>
+  </div>`;
+}
+
 function render(){
   renderStats();
 
-  const items = getAllItems();
+  const items = currentTab === 'deleted' ? getDeletedItems() : getAllItems();
   const pool = currentTab === 'reserve' ? items.filter(isReserve)
     : currentTab === 'all' ? items
+    : currentTab === 'deleted' ? items
     : items.filter(i => !isReserve(i));
   const filtered = pool.filter(matchesFilters);
 
   const lastWorn = (id) => { const d = wearlog[id]; return d && d.length ? d[d.length - 1] : null; };
   const wearCount = (id) => (wearlog[id] || []).length;
 
-  if (currentTab === 'active' || currentTab === 'all'){
+  if (currentTab === 'deleted'){
+    filtered.sort((a, b) => `${a.brand} ${a.type}`.localeCompare(`${b.brand} ${b.type}`));
+    document.getElementById('sortlinetext').textContent =
+      'Soft-deleted items — restore them or permanently delete them below. Wear history is kept until you choose "Delete permanently."';
+  } else if (currentTab === 'active' || currentTab === 'all'){
     if (sortMode === 'most-worn'){
       filtered.sort((a,b) => wearCount(b.id) - wearCount(a.id));
       document.getElementById('sortlinetext').textContent = 'Sorted by most worn first.';
@@ -1530,12 +1640,15 @@ function render(){
 
   const grid = document.getElementById('grid');
   const empty = document.getElementById('empty');
+  const bulkPurgeRow = document.getElementById('bulkPurgeRow');
+  if (bulkPurgeRow) bulkPurgeRow.style.display = (currentTab === 'deleted' && filtered.length > 0) ? 'flex' : 'none';
   if (filtered.length === 0){
     grid.innerHTML = '';
     empty.style.display = 'block';
+    empty.textContent = currentTab === 'deleted' ? 'Deleted items is empty.' : 'No items match this filter.';
   } else {
     empty.style.display = 'none';
-    grid.innerHTML = filtered.map(cardHTML).join('');
+    grid.innerHTML = filtered.map(currentTab === 'deleted' ? deletedCardHTML : cardHTML).join('');
   }
 }
 
@@ -1544,6 +1657,7 @@ function setTab(tab){
   document.getElementById('tab-active').classList.toggle('active', tab === 'active');
   document.getElementById('tab-reserve').classList.toggle('active', tab === 'reserve');
   document.getElementById('tab-all').classList.toggle('active', tab === 'all');
+  document.getElementById('tab-deleted').classList.toggle('active', tab === 'deleted');
   render();
 }
 
@@ -1680,18 +1794,56 @@ document.addEventListener('click', async (e) => {
     populateFilters();
     render();
   } else if (action === 'delete'){
+    // Soft delete only — moves the item to "Deleted items" without touching
+    // its wearlog/overrides/purchase date/notes, so it can be fully
+    // restored later. Nothing is actually erased until the user explicitly
+    // chooses "Delete permanently" from the Deleted items tab.
     const items = getAllItems();
     const item = items.find(i => i.id === id);
     const label = item ? `${item.brand} ${item.color} ${item.type}` : 'this item';
-    if (!confirm(`Delete ${label} from your inventory? Its wear history will also be removed. This can't be undone.`)) return;
+    if (!confirm(`Move ${label} to Deleted items? It'll be hidden from your active inventory, but you can restore it — or permanently delete it — from the "Deleted items" tab.`)) return;
     deletedIds[id] = true;
-    delete wearlog[id];
-    delete activated[id];
-    delete overrides[id];
-    delete purchasedDates[id];
-    delete itemNotes[id];
+    // Un-does any earlier "Restore" for this id, and prevents a stale
+    // remote copy from fighting this delete on the next merge-before-write.
+    if (tombstones.deletedIds[id]){
+      delete tombstones.deletedIds[id];
+    }
     if (editingId === id) editingId = null;
-    await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides(), savePurchasedDates(), saveItemNotes()]);
+    await saveDeletedIds();
+    populateFilters();
+    render();
+  } else if (action === 'restore'){
+    // Un-delete: bring the item back to Active/Reserve exactly as it was.
+    // `deletedIds` is additive-only (mergeDeletedIds), so deleting the key
+    // here isn't enough by itself — the next save's reconcile-before-push
+    // step would otherwise pull `deletedIds[id]: true` right back in from
+    // Supabase. Tombstone the id first so the merge knows not to
+    // resurrect it (same pattern as "Return to reserve").
+    delete deletedIds[id];
+    tombstones.deletedIds[id] = true;
+    await saveTombstones();
+    await saveDeletedIds();
+    populateFilters();
+    render();
+  } else if (action === 'delete-permanently'){
+    const items = getDeletedItems();
+    const item = items.find(i => i.id === id);
+    const label = item ? `${item.brand} ${item.color} ${item.type}` : 'this item';
+    const wearCountForItem = (wearlog[id] || []).length;
+    const warn = wearCountForItem
+      ? ` It has ${wearCountForItem} logged wear${wearCountForItem === 1 ? '' : 's'} that will be erased along with it.`
+      : '';
+    if (!confirm(`Permanently delete ${label}?${warn} This cannot be undone.`)) return;
+    await purgeItemPermanently(id);
+    populateFilters();
+    render();
+  } else if (action === 'purge-all'){
+    const items = getDeletedItems().filter(matchesFilters);
+    if (items.length === 0) return;
+    if (!confirm(`Permanently delete all ${items.length} item(s) currently shown in Deleted items? Any wear history on them will be erased. This cannot be undone.`)) return;
+    for (const item of items){
+      await purgeItemPermanently(item.id);
+    }
     populateFilters();
     render();
   }
@@ -1734,6 +1886,7 @@ document.addEventListener('change', async (e) => {
 document.getElementById('tab-active').addEventListener('click', () => setTab('active'));
 document.getElementById('tab-reserve').addEventListener('click', () => setTab('reserve'));
 document.getElementById('tab-all').addEventListener('click', () => setTab('all'));
+document.getElementById('tab-deleted').addEventListener('click', () => setTab('deleted'));
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('filterColor').addEventListener('change', render);
 document.getElementById('filterBrand').addEventListener('change', render);
