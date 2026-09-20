@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260817140000">
+<meta name="app-version" content="20260920120000">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -103,7 +103,6 @@
     padding:14px 16px;
   }
   .stat .n{font-family:'Fraunces',serif;font-size:26px;font-weight:600;line-height:1;}
-  .stat .n-sub{font-size:16px;font-weight:500;color:var(--muted);}
   .stat .l{font-size:12px;color:var(--muted);margin-top:6px;}
   .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:1.25rem;}
   .tab{
@@ -173,11 +172,6 @@
   .brand{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;}
   .name{font-family:'Fraunces',serif;font-size:16px;font-weight:500;margin-top:1px;}
   .meta{font-size:12px;color:var(--muted);padding-left:6px;}
-  .item-note{
-    font-size:12px;color:var(--ink);padding-left:6px;
-    font-style:italic; opacity:0.85;
-    white-space:pre-wrap; word-break:break-word;
-  }
   code.tagcode{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
   .status-row{display:flex;justify-content:space-between;align-items:center;padding-left:6px;margin-top:2px;flex-wrap:wrap;gap:6px;}
   .pill{
@@ -351,14 +345,6 @@
         <label for="f-code">Item code (optional)</label>
         <input type="text" id="f-code" placeholder="e.g. PH5522">
       </div>
-      <div>
-        <label for="f-purchased">Purchased (month/year, optional)</label>
-        <input type="month" id="f-purchased">
-      </div>
-      <div style="grid-column:1/-1;">
-        <label for="f-notes">Notes (optional)</label>
-        <textarea id="f-notes" rows="2" style="width:100%;font-family:'Inter',sans-serif;font-size:13px;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);resize:vertical;" placeholder="Fit notes, alterations, where you bought it..."></textarea>
-      </div>
       <div style="grid-column:1/-1;">
         <label for="f-photo-input">Photo (optional)</label>
         <input type="file" accept="image/*" id="f-photo-input">
@@ -383,32 +369,23 @@
   <div class="tabs">
     <button class="tab active" data-tab="active" id="tab-active">Active rotation</button>
     <button class="tab" data-tab="reserve" id="tab-reserve">Reserve (new)</button>
-    <button class="tab" data-tab="all" id="tab-all">All</button>
-    <button class="tab" data-tab="deleted" id="tab-deleted">Deleted items</button>
   </div>
 
   <div class="controls">
     <input class="search" id="search" placeholder="Search brand, type, color, code…">
     <select id="filterColor"><option value="">All colors</option></select>
     <select id="filterBrand"><option value="">All brands</option></select>
-    <select id="filterPurchaseYear"><option value="">All purchase years</option></select>
     <select id="sortMode">
       <option value="overdue">Sort: most overdue</option>
       <option value="last-worn">Sort: last worn</option>
       <option value="most-worn">Sort: most worn</option>
       <option value="least-worn">Sort: least worn</option>
-      <option value="purchased-newest">Sort: recently purchased</option>
-      <option value="purchased-oldest">Sort: oldest purchased</option>
     </select>
   </div>
 
   <p class="sortline">
     <span id="sortlinetext"></span>
   </p>
-
-  <div id="bulkPurgeRow" style="display:none; justify-content:flex-end; margin-bottom:0.75rem;">
-    <button class="btn ghost small" id="purgeAllBtn" data-action="purge-all" style="color:var(--rust);">Permanently delete all shown</button>
-  </div>
 
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none;">No items match this filter.</div>
@@ -448,28 +425,8 @@ function displayHex(item){
 let wearlog = {};      // itemId -> array of ISO date strings, oldest first
 let activated = {};    // itemId -> true, if moved out of reserve
 let customItems = [];  // user-added items
-let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom). Data (wearlog,
-                        // overrides, etc.) is preserved so a soft-deleted item can be restored.
-let purgedIds = {};    // itemId -> true, PERMANENTLY deleted from "Deleted items". Its data
-                        // has been actively wiped and this can never be undone.
+let deletedIds = {};   // itemId -> true, soft-deleted items (base or custom)
 let overrides = {};    // itemId -> partial {brand,type,material,color,code} edits
-let purchasedDates = {}; // itemId -> "YYYY-MM" string (month + year only, no day)
-let itemNotes = {};    // itemId -> free-text notes string
-// Tombstones: records of deliberate LOCAL removals, so the merge-before-write
-// logic (which additively folds remote data back into what we're about to
-// push) can't silently resurrect something the user just deleted. Without
-// this, e.g. "Undo last" would pop a date locally, then saveWearlog's
-// reconcile-before-push step would re-fetch Supabase (which still has the
-// old date, since it hasn't been told about the removal yet), union it back
-// in, and push the union — making Undo look like it "didn't work."
-// wearlogDates: itemId -> [dates ever removed]. purchasedDates/itemNotes/
-// activated/deletedIds: itemId -> true, meaning "this id's flag/value was
-// deliberately cleared locally" (deletedIds here covers "Restore" — un-
-// deleting an item — the same way activated covers "Return to reserve").
-// Tombstones only ever grow (that's correct for their purpose, same as
-// deletedIds/purgedIds themselves), so a plain additive merge across
-// devices is fine for them.
-let tombstones = { wearlogDates: {}, purchasedDates: {}, itemNotes: {}, activated: {}, deletedIds: {} };
 let currentTab = 'active';
 let sortMode = 'overdue'; // 'overdue' | 'last-worn' | 'most-worn' | 'least-worn'
 let editingId = null;  // id of item currently being edited inline, or null
@@ -507,14 +464,6 @@ function startOfWeekISO(offsetWeeks){
   return isoFromDate(monday);
 }
 
-function startOfMonthISO(offsetMonths){
-  // offsetMonths=0 is this month, -1 is last month, etc.
-  offsetMonths = offsetMonths || 0;
-  const d = new Date();
-  const first = new Date(d.getFullYear(), d.getMonth() + offsetMonths, 1);
-  return isoFromDate(first);
-}
-
 function daysSince(iso){
   const then = new Date(iso + 'T00:00:00');
   const now = new Date(todayISO() + 'T00:00:00');
@@ -524,15 +473,6 @@ function daysSince(iso){
 function formatDate(iso){
   const d = new Date(iso + 'T00:00:00');
   return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
-}
-
-// Formats a "YYYY-MM" string (from <input type="month">) into "Mon YYYY",
-// e.g. "2026-07" -> "Jul 2026". Deliberately never carries a day component.
-function formatMonthYear(ym){
-  if (!ym) return '';
-  const [y, m] = ym.split('-').map(Number);
-  const d = new Date(y, m - 1, 1);
-  return d.toLocaleDateString(undefined, { month:'short', year:'numeric' });
 }
 
 // Crops an uploaded image to a centered square, shrinks it, and compresses
@@ -796,47 +736,14 @@ function withTimeout(promise, ms){
   ]);
 }
 
-// Tracks when each key was last written LOCALLY, and whether that local
-// write has actually made it to Supabase yet. This is what lets us tell
-// "Supabase has nothing new to say" apart from "Supabase's copy is stale
-// because our last push to it silently failed" — without this, a failed
-// write (e.g. a network blip while adding an item on your phone) would
-// look identical to "no change happened," and the next page load would
-// happily pull the stale Supabase copy right back over your correct local
-// data, silently undoing the change.
-function getLocalTs(key){
-  try {
-    const v = localStorage.getItem('wardrobe:' + key + ':ts');
-    return v ? parseInt(v, 10) : null;
-  } catch(e){ return null; }
-}
-function setLocalTs(key, ts){
-  try { localStorage.setItem('wardrobe:' + key + ':ts', String(ts)); } catch(e){}
-}
-function setPendingFlag(key){
-  try { localStorage.setItem('wardrobe:pending:' + key, '1'); } catch(e){}
-}
-function clearPendingFlag(key){
-  try { localStorage.removeItem('wardrobe:pending:' + key); } catch(e){}
-}
-function hasPendingFlag(key){
-  try { return !!localStorage.getItem('wardrobe:pending:' + key); } catch(e){ return false; }
-}
-const STORAGE_KEYS = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes','tombstones','purgedIds'];
-function anyPendingFlags(){
-  return STORAGE_KEYS.some(hasPendingFlag);
-}
-
 async function supabaseGet(key){
-  const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}&select=value,updated_at`;
+  const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}&select=value`;
   const resp = await withTimeout(fetch(url, {
-    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-    cache: 'no-store'
-  }), 12000);
+    headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
+  }), 4000);
   if (!resp.ok) throw new Error('supabase get ' + resp.status);
   const rows = await resp.json();
-  if (!rows.length) return null;
-  return { value: JSON.stringify(rows[0].value), updatedAt: rows[0].updated_at };
+  return rows.length ? JSON.stringify(rows[0].value) : null;
 }
 
 async function supabaseSet(key, value){
@@ -849,8 +756,7 @@ async function supabaseSet(key, value){
       'Content-Type': 'application/json',
       'Prefer': 'resolution=merge-duplicates,return=minimal'
     },
-    body: JSON.stringify([{ key, value: JSON.parse(value), updated_at: new Date().toISOString() }]),
-    cache: 'no-store'
+    body: JSON.stringify([{ key, value: JSON.parse(value), updated_at: new Date().toISOString() }])
   }), 4000);
   if (!resp.ok) throw new Error('supabase set ' + resp.status);
 }
@@ -858,60 +764,21 @@ async function supabaseSet(key, value){
 async function storageGet(key){
   if (SUPABASE_URL && SUPABASE_KEY){
     try {
-      const remote = await supabaseGet(key);
+      const v = await supabaseGet(key);
       storageMode = 'supabase';
       let localV = null;
       try { localV = localStorage.getItem('wardrobe:' + key); } catch(e){}
 
-      if (remote && remote.value != null){
-        // Only prefer local over remote when we have a POSITIVE, unambiguous
-        // signal that this exact browser has a write Supabase never received
-        // (the pending flag, set only at the moment a real push actually
-        // failed). Deliberately NOT using a timestamp comparison here —
-        // comparing this browser's clock against Supabase's server clock is
-        // inherently a little fuzzy (drift, parsing edge cases, races
-        // between tabs), which is exactly the kind of thing that could make
-        // a fresh load only "sometimes" show the right data. The pending
-        // flag has no such ambiguity: either our own code observed a push
-        // fail, or it didn't.
-        if (localV != null && hasPendingFlag(key)){
-          // We know this device has a write Supabase never received — but
-          // remote may ALSO have gained something new from another device
-          // in the meantime. Merge, don't blind-overwrite: fold any
-          // remote-only entries into our pending local value first, using
-          // the same type-aware merge logic as normal saves, before pushing.
-          let mergedValue = localV;
-          try {
-            const mergeFn = KEY_MERGE_FNS[key];
-            if (mergeFn){
-              const localParsed = JSON.parse(localV);
-              const remoteParsed = JSON.parse(remote.value);
-              mergeFn(localParsed, remoteParsed);
-              mergedValue = JSON.stringify(localParsed);
-            }
-          } catch(e){ /* if parsing fails for any reason, fall back to the unmerged pending value rather than losing it entirely */ }
-          try { await supabaseSet(key, mergedValue); clearPendingFlag(key); }
-          catch(e){ setPendingFlag(key); }
-          try {
-            localStorage.setItem('wardrobe:' + key, mergedValue);
-            setLocalTs(key, Date.now());
-          } catch(e){}
-          return mergedValue;
-        }
-        // No known pending write from this device — remote is authoritative,
-        // full stop. Every normal load takes this path.
-        try {
-          localStorage.setItem('wardrobe:' + key, remote.value);
-          setLocalTs(key, Date.now());
-        } catch(e){}
-        clearPendingFlag(key);
-        return remote.value;
+      if (v != null){
+        // Supabase has data — it's the source of truth. Refresh the local cache.
+        try { localStorage.setItem('wardrobe:' + key, v); } catch(e){}
+        return v;
       }
       if (localV){
-        // Supabase has nothing yet for this key at all — push local up
-        // so it becomes the shared copy instead of discarding it.
-        try { await supabaseSet(key, localV); clearPendingFlag(key); }
-        catch(e){ setPendingFlag(key); }
+        // Supabase has nothing yet, but this browser has real cached data
+        // (e.g. from before Supabase was wired in). Never discard it —
+        // push it up to Supabase so it becomes the shared copy instead.
+        try { await supabaseSet(key, localV); } catch(e){ /* will retry on next save */ }
         return localV;
       }
       return null;
@@ -934,65 +801,98 @@ async function storageGet(key){
   }
 }
 
+// Each storage key is one JSON blob, not per-item rows, so a device
+// that's been open for a while can otherwise silently overwrite an
+// addition another device just made. Additive merge per key shape so
+// neither side's data is lost.
+function mergeStorageValues(key, localStr, remoteStr){
+  if (!remoteStr) return localStr;
+  if (!localStr) return remoteStr;
+  let local, remote;
+  try { local = JSON.parse(localStr); remote = JSON.parse(remoteStr); }
+  catch(e){ return localStr; }
+
+  if (key === 'wearlog'){
+    const merged = { ...remote };
+    Object.keys(local).forEach(id => {
+      const l = Array.isArray(local[id]) ? local[id] : [local[id]];
+      const r = Array.isArray(merged[id]) ? merged[id] : (merged[id] ? [merged[id]] : []);
+      merged[id] = [...new Set([...r, ...l])].sort();
+    });
+    return JSON.stringify(merged);
+  }
+  if (key === 'customItems'){
+    const byId = new Map();
+    (Array.isArray(remote) ? remote : []).forEach(i => byId.set(i.id, i));
+    (Array.isArray(local) ? local : []).forEach(i => { if (!byId.has(i.id)) byId.set(i.id, i); });
+    return JSON.stringify([...byId.values()]);
+  }
+  // activated / deletedIds / overrides: additive object merge; this
+  // device's own edits win on conflict since they're the most recent
+  // thing the user did here.
+  return JSON.stringify({ ...remote, ...local });
+}
+
 async function storageSet(key, value){
   let supabaseOk = false;
   if (SUPABASE_URL && SUPABASE_KEY){
+    let toPush = value;
+    let reconciled = true;
     try {
-      await supabaseSet(key, value);
-      storageMode = 'supabase';
-      supabaseOk = true;
-    } catch(e){ /* fall through */ }
+      const remoteStr = await supabaseGet(key);
+      toPush = mergeStorageValues(key, value, remoteStr);
+    } catch(reconcileErr){
+      reconciled = false;
+    }
+    if (reconciled){
+      try {
+        await supabaseSet(key, toPush);
+        storageMode = 'supabase';
+        supabaseOk = true;
+        value = toPush; // so the local cache below also reflects the merge
+        try { localStorage.removeItem('wardrobe:pending:' + key); } catch(e){}
+      } catch(e){ /* fall through */ }
+    } else {
+      // Couldn't reconcile against the remote copy — pushing this
+      // device's value now risks clobbering a change we haven't seen
+      // yet. Save locally only and flag it as pending instead.
+      try {
+        localStorage.setItem('wardrobe:' + key, value);
+        localStorage.setItem('wardrobe:pending:' + key, '1');
+      } catch(e){}
+      storageMode = 'supabase-offline';
+      return;
+    }
   }
   // always keep a local cache too, so the app still works offline
   try {
     localStorage.setItem('wardrobe:' + key, value);
-    setLocalTs(key, Date.now());
     if (!supabaseOk) storageMode = 'local';
   } catch(e){
     if (!supabaseOk) storageMode = 'memory';
   }
-  if (supabaseOk){
-    // Successfully reached Supabase — this key is fully in sync now.
-    clearPendingFlag(key);
-  } else {
-    // Supabase write failed. The local copy (with its fresh timestamp) is
-    // now AHEAD of whatever Supabase has on file. Flag it so the UI can
-    // say so honestly, rather than pretending everything's synced — the
-    // next successful storageGet/storageSet for this key will retry the
-    // push automatically via the timestamp comparison above.
-    setPendingFlag(key);
-    if (window.storage && typeof window.storage.set === 'function'){
-      try {
-        await withTimeout(window.storage.set(key, value, false), 2500);
-        storageMode = 'claude';
-      } catch(e){ /* fall through */ }
-    }
+  if (!supabaseOk && window.storage && typeof window.storage.set === 'function'){
+    try {
+      await withTimeout(window.storage.set(key, value, false), 2500);
+      storageMode = 'claude';
+    } catch(e){ /* fall through */ }
   }
 }
 
 async function loadState(){
-  // Tombstones are fetched first (and awaited on its own) because the merge
-  // functions below read the `tombstones` global directly — if it fetched in
-  // the same Promise.all as everything else, a race could let e.g. wearlog's
-  // merge run before tombstones has actually landed.
-  const tb = await storageGet('tombstones');
-  tombstones = tb ? JSON.parse(tb) : { wearlogDates: {}, purchasedDates: {}, itemNotes: {}, activated: {}, deletedIds: {} };
-  if (!tombstones.wearlogDates) tombstones.wearlogDates = {};
-  if (!tombstones.purchasedDates) tombstones.purchasedDates = {};
-  if (!tombstones.itemNotes) tombstones.itemNotes = {};
-  if (!tombstones.activated) tombstones.activated = {};
-  if (!tombstones.deletedIds) tombstones.deletedIds = {};
-
-  // Fetch the rest of the keys in PARALLEL rather than one-await-after-
-  // another. The old sequential version meant separate round-trips to
-  // Supabase stacked end to end; on a cold or slow connection their combined
-  // time easily blew past the startup timeout, causing the whole load to
-  // bail out to stale local data (or empty). In parallel, total wait is ~the
-  // slowest single fetch, not the sum of all of them.
-  const keys = ['wearlog','activated','customItems','deletedIds','overrides','purchasedDates','itemNotes','purgedIds'];
-  const [w, a, c, d, ov, pd, notes, pg] = await Promise.all(keys.map(k => storageGet(k)));
-
+  // Fetch all keys in parallel — sequential awaits here (one round-trip
+  // after another) were the actual cause of slow/incomplete refreshes:
+  // the combined latency of 5 stacked Supabase round-trips could exceed
+  // the load timeout even when each individual fetch was fine on its own.
+  const [w, a, c, d, ov] = await Promise.all([
+    storageGet('wearlog'),
+    storageGet('activated'),
+    storageGet('customItems'),
+    storageGet('deletedIds'),
+    storageGet('overrides')
+  ]);
   wearlog = w ? JSON.parse(w) : {};
+  // migrate legacy format where wearlog[id] was a single date string
   Object.keys(wearlog).forEach(id => {
     if (typeof wearlog[id] === 'string') wearlog[id] = [wearlog[id]];
   });
@@ -1000,194 +900,16 @@ async function loadState(){
   customItems = c ? JSON.parse(c) : [];
   deletedIds = d ? JSON.parse(d) : {};
   overrides = ov ? JSON.parse(ov) : {};
-  purchasedDates = pd ? JSON.parse(pd) : {};
-  itemNotes = notes ? JSON.parse(notes) : {};
-  purgedIds = pg ? JSON.parse(pg) : {};
 }
 
-// --- Merge-before-write ---
-// Every one of these keys is stored as ONE JSON blob per key, not as
-// separate per-item rows. That means saving from a browser tab that's been
-// open a while (and hasn't seen a change made from another device in the
-// meantime) will, by default, overwrite Supabase with an outdated snapshot
-// — silently erasing the other device's addition, even though nothing
-// "failed" and no error was ever thrown. This is a different failure mode
-// from a network write failing (handled separately via the pending flag)
-// and needs a different fix: pull the current remote value immediately
-// before writing, and fold in anything present remotely but missing from
-// our own in-memory copy, rather than blindly trusting what this tab
-// happened to have loaded.
-// Reconciles `target` against whatever Supabase currently has for `key`,
-// THEN pushes — but only if the reconciliation fetch itself succeeded. If
-// we can't confirm what Supabase currently holds, we do NOT push a blob we
-// can't vouch for: better to leave this device's change safely local and
-// pending than to risk silently erasing something we never got to see.
-// The next successful save or load for this key will retry the full
-// reconcile-then-push cycle.
-const KEY_MERGE_FNS = {
-  wearlog: mergeWearlog,
-  activated: mergeActivated,
-  customItems: mergeArrayById,
-  deletedIds: mergeDeletedIds,
-  overrides: mergeObjectAdditive,
-  purchasedDates: mergePurchasedDates,
-  itemNotes: mergeItemNotes,
-  tombstones: mergeTombstones,
-  purgedIds: mergeObjectAdditive
-};
-
-async function saveKeySafely(key, target, mergeFn){
-  let reconciled = true;
-  if (SUPABASE_URL && SUPABASE_KEY){
-    try {
-      const remote = await supabaseGet(key);
-      if (remote && remote.value != null){
-        mergeFn(target, JSON.parse(remote.value));
-      }
-    } catch(e){ reconciled = false; }
-  }
-
-  const value = JSON.stringify(target);
-
-  if (SUPABASE_URL && SUPABASE_KEY && !reconciled){
-    try { localStorage.setItem('wardrobe:' + key, value); setLocalTs(key, Date.now()); } catch(e){}
-    setPendingFlag(key);
-    storageMode = 'local';
-    updateStorageNote();
-    return;
-  }
-
-  await storageSet(key, value);
-  updateStorageNote();
-}
-// Adds any remote-only keys into target without touching keys target
-// already has (so this tab's own intended edits still win for those).
-function mergeObjectAdditive(target, remoteObj){
-  Object.keys(remoteObj || {}).forEach(k => {
-    if (!(k in target)) target[k] = remoteObj[k];
-  });
-}
-// Adds any remote-only array entries (by id) that this tab doesn't have.
-function mergeArrayById(target, remoteArr){
-  const ids = new Set(target.map(i => i.id));
-  (remoteArr || []).forEach(item => { if (!ids.has(item.id)) target.push(item); });
-}
-// wearlog is date-arrays keyed by item id — union the date arrays per item,
-// same merge semantics as manual JSON import already uses, EXCEPT a date
-// tombstoned for that id (deliberately removed locally via Undo/remove-date)
-// is never pulled back in FROM REMOTE.
-//
-// Important: the tombstone only blocks resurrection from remote — it must
-// NOT strip a date that's already present in `target` (the local copy)
-// itself. `target` here is the live in-memory wearlog, so if the user just
-// re-added the same date locally (e.g. Undo, then Mark worn again the same
-// day), that date is already sitting in `existing` at merge time and has to
-// survive the merge. An earlier version filtered tombstoned dates out of
-// the whole union indiscriminately, which also deleted this kind of fresh
-// local re-add — making "Mark worn" silently no-op after an Undo on the
-// same date.
-function mergeWearlog(target, remoteObj){
-  Object.keys(remoteObj || {}).forEach(id => {
-    const remoteDates = Array.isArray(remoteObj[id]) ? remoteObj[id] : [remoteObj[id]];
-    const existing = Array.isArray(target[id]) ? target[id] : [];
-    const existingSet = new Set(existing);
-    const removedForId = new Set(tombstones.wearlogDates[id] || []);
-    const merged = new Set(existing);
-    remoteDates.forEach(d => {
-      if (existingSet.has(d)) return;       // already present locally — nothing to decide
-      if (removedForId.has(d)) return;      // tombstoned and not currently present locally — don't resurrect
-      merged.add(d);
-    });
-    target[id] = [...merged].sort();
-  });
-}
-// Same idea as mergeObjectAdditive, but an id tombstoned in
-// tombstones.purchasedDates is never pulled back in from remote — it was
-// deliberately cleared locally.
-function mergePurchasedDates(target, remoteObj){
-  Object.keys(remoteObj || {}).forEach(k => {
-    if (tombstones.purchasedDates[k]) return;
-    if (!(k in target)) target[k] = remoteObj[k];
-  });
-}
-function mergeItemNotes(target, remoteObj){
-  Object.keys(remoteObj || {}).forEach(k => {
-    if (tombstones.itemNotes[k]) return;
-    if (!(k in target)) target[k] = remoteObj[k];
-  });
-}
-// activated[id]=true marks an item pulled out of Reserve into active
-// rotation. "Return to reserve" deletes the key locally — an id tombstoned
-// here is never pulled back in from remote, same reasoning as
-// mergePurchasedDates/mergeItemNotes above. (No extra "already present
-// locally" nuance is needed the way mergeWearlog needs it: this is a single
-// boolean per id, not an array, so `!(k in target)` alone already lets a
-// fresh local re-activation win outright.)
-function mergeActivated(target, remoteObj){
-  Object.keys(remoteObj || {}).forEach(k => {
-    if (tombstones.activated[k]) return;
-    if (!(k in target)) target[k] = remoteObj[k];
-  });
-}
-// deletedIds[id]=true marks an item soft-deleted (moved to "Deleted items").
-// "Restore" deletes the key locally — same reasoning as mergeActivated
-// above: an id tombstoned in tombstones.deletedIds is never pulled back in
-// from remote, so a stale remote copy can't silently un-restore an item.
-function mergeDeletedIds(target, remoteObj){
-  Object.keys(remoteObj || {}).forEach(k => {
-    if (tombstones.deletedIds[k]) return;
-    if (!(k in target)) target[k] = remoteObj[k];
-  });
-}
-// Tombstones themselves only ever grow — a plain additive union (per
-// section, and per-id date-array union for wearlogDates) is correct here.
-function mergeTombstones(target, remoteObj){
-  if (!remoteObj) return;
-  Object.keys(remoteObj.wearlogDates || {}).forEach(id => {
-    const existing = target.wearlogDates[id] || [];
-    target.wearlogDates[id] = [...new Set([...existing, ...remoteObj.wearlogDates[id]])];
-  });
-  ['purchasedDates', 'itemNotes', 'activated', 'deletedIds'].forEach(section => {
-    Object.keys(remoteObj[section] || {}).forEach(id => { target[section][id] = true; });
-  });
-}
-
-async function saveWearlog(){ await saveKeySafely('wearlog', wearlog, mergeWearlog); }
-async function saveActivated(){ await saveKeySafely('activated', activated, mergeActivated); }
-async function saveCustomItems(){ await saveKeySafely('customItems', customItems, mergeArrayById); }
-async function saveDeletedIds(){ await saveKeySafely('deletedIds', deletedIds, mergeDeletedIds); }
-async function savePurgedIds(){ await saveKeySafely('purgedIds', purgedIds, mergeObjectAdditive); }
-async function saveOverrides(){ await saveKeySafely('overrides', overrides, mergeObjectAdditive); }
-async function savePurchasedDates(){ await saveKeySafely('purchasedDates', purchasedDates, mergePurchasedDates); }
-async function saveItemNotes(){ await saveKeySafely('itemNotes', itemNotes, mergeItemNotes); }
-async function saveTombstones(){ await saveKeySafely('tombstones', tombstones, mergeTombstones); }
-
-// Clears a date from an item's removal-tombstone list, if present. Called
-// whenever a date is (re-)added to wearlog, so a date that was undone and
-// then deliberately re-logged doesn't carry a stale tombstone forward
-// forever. Not strictly required for correctness (mergeWearlog already
-// treats "present locally" as taking precedence over any tombstone), but
-// keeps the tombstone list from growing with entries that no longer mean
-// anything, and keeps its state honest.
-async function untombstoneWearDate(id, date){
-  const list = tombstones.wearlogDates[id];
-  if (!list) return;
-  const idx = list.indexOf(date);
-  if (idx === -1) return;
-  list.splice(idx, 1);
-  if (list.length === 0) delete tombstones.wearlogDates[id];
-  await saveTombstones();
-}
+async function saveWearlog(){ await storageSet('wearlog', JSON.stringify(wearlog)); }
+async function saveActivated(){ await storageSet('activated', JSON.stringify(activated)); }
+async function saveCustomItems(){ await storageSet('customItems', JSON.stringify(customItems)); }
+async function saveDeletedIds(){ await storageSet('deletedIds', JSON.stringify(deletedIds)); }
+async function saveOverrides(){ await storageSet('overrides', JSON.stringify(overrides)); }
 
 function updateStorageNote(){
   const el = document.getElementById('storagenote');
-  if (SUPABASE_URL && SUPABASE_KEY && anyPendingFlags()){
-    // Supabase is configured and we're actively retrying a failed push —
-    // distinct from "local only," which implies no sync is happening at
-    // all. This is a live, self-healing state, not a dead end.
-    el.textContent = 'Couldn\'t reach Supabase for your last change — it\'s saved safely in this browser and will keep retrying automatically. Other devices won\'t see it until that succeeds.';
-    return;
-  }
   if (storageMode === 'supabase'){
     el.textContent = 'Synced across your devices via Supabase.';
   } else if (storageMode === 'supabase-offline'){
@@ -1213,7 +935,7 @@ function downloadJSON(filename, obj){
 async function handleExport(){
   downloadJSON('wardrobe-rotation-backup.json', {
     exportedAt: new Date().toISOString(),
-    wearlog, activated, customItems, deletedIds, purgedIds, overrides, purchasedDates, itemNotes, tombstones
+    wearlog, activated, customItems, deletedIds, overrides
   });
 }
 
@@ -1234,12 +956,8 @@ async function handleImportFile(file){
       data.customItems.forEach(i => { if (!existingIds.has(i.id)) customItems.push(i); });
     }
     if (data.deletedIds) deletedIds = { ...deletedIds, ...data.deletedIds };
-    if (data.purgedIds) purgedIds = { ...purgedIds, ...data.purgedIds };
     if (data.overrides) overrides = { ...overrides, ...data.overrides };
-    if (data.purchasedDates) purchasedDates = { ...purchasedDates, ...data.purchasedDates };
-    if (data.itemNotes) itemNotes = { ...itemNotes, ...data.itemNotes };
-    if (data.tombstones) mergeTombstones(tombstones, data.tombstones);
-    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), savePurgedIds(), saveOverrides(), savePurchasedDates(), saveItemNotes(), saveTombstones()]);
+    await Promise.all([saveWearlog(), saveActivated(), saveCustomItems(), saveDeletedIds(), saveOverrides()]);
     updateStorageNote();
     populateFilters();
     render();
@@ -1251,49 +969,8 @@ async function handleImportFile(file){
 
 function getAllItems(){
   return BASE_ITEMS.concat(customItems)
-    .filter(i => !deletedIds[i.id] && !purgedIds[i.id])
+    .filter(i => !deletedIds[i.id])
     .map(i => overrides[i.id] ? { ...i, ...overrides[i.id] } : i);
-}
-
-// Items sitting in "Deleted items" — soft-deleted but not yet permanently
-// purged. Their wearlog/overrides/etc. are left fully intact so Restore can
-// bring them back exactly as they were.
-function getDeletedItems(){
-  return BASE_ITEMS.concat(customItems)
-    .filter(i => deletedIds[i.id] && !purgedIds[i.id])
-    .map(i => overrides[i.id] ? { ...i, ...overrides[i.id] } : i);
-}
-
-// Actually, irreversibly wipes an item's data: wearlog, activation state,
-// overrides, purchase date, notes, and (if it's a user-added item) removes
-// it from customItems entirely. Also clears any leftover tombstone entries
-// for the id, since they're meaningless once the item itself is gone.
-// purgedIds[id] is the permanent record that this id is gone for good —
-// unlike deletedIds, it is never un-set, so a plain additive merge for it
-// is correct and no tombstone is needed for purgedIds itself.
-async function purgeItemPermanently(id){
-  purgedIds[id] = true;
-  delete wearlog[id];
-  delete activated[id];
-  delete overrides[id];
-  delete purchasedDates[id];
-  delete itemNotes[id];
-  if (tombstones.wearlogDates) delete tombstones.wearlogDates[id];
-  if (tombstones.activated) delete tombstones.activated[id];
-  if (tombstones.purchasedDates) delete tombstones.purchasedDates[id];
-  if (tombstones.itemNotes) delete tombstones.itemNotes[id];
-  if (tombstones.deletedIds) delete tombstones.deletedIds[id];
-
-  const wasCustom = customItems.some(i => i.id === id);
-  if (wasCustom) customItems = customItems.filter(i => i.id !== id);
-  if (editingId === id) editingId = null;
-
-  const saves = [
-    savePurgedIds(), saveWearlog(), saveActivated(), saveOverrides(),
-    savePurchasedDates(), saveItemNotes(), saveTombstones()
-  ];
-  if (wasCustom) saves.push(saveCustomItems());
-  await Promise.all(saves);
 }
 
 function isReserve(item){
@@ -1306,30 +983,19 @@ function populateFilters(){
   const brands = [...new Set(items.map(i => i.brand))].sort();
   const cSel = document.getElementById('filterColor');
   const bSel = document.getElementById('filterBrand');
-  const ySel = document.getElementById('filterPurchaseYear');
   const dl = document.getElementById('colorSuggestions');
   const prevColor = cSel.value;
   const prevBrand = bSel.value;
-  const prevYear = ySel.value;
   cSel.innerHTML = '<option value="">All colors</option>';
   bSel.innerHTML = '<option value="">All brands</option>';
-  ySel.innerHTML = '<option value="">All purchase years</option>';
   dl.innerHTML = '';
   colors.forEach(c => {
     cSel.appendChild(new Option(c, c));
     dl.appendChild(new Option(c, c));
   });
   brands.forEach(b => bSel.appendChild(new Option(b, b)));
-  const years = [...new Set(items
-    .map(i => purchasedDates[i.id])
-    .filter(Boolean)
-    .map(ym => ym.split('-')[0])
-  )].sort().reverse();
-  years.forEach(y => ySel.appendChild(new Option(y, y)));
-  ySel.appendChild(new Option('Not logged', 'unlogged'));
   if (colors.includes(prevColor)) cSel.value = prevColor;
   if (brands.includes(prevBrand)) bSel.value = prevBrand;
-  if (prevYear && (years.includes(prevYear) || prevYear === 'unlogged')) ySel.value = prevYear;
 }
 
 function renderStats(){
@@ -1338,44 +1004,25 @@ function renderStats(){
   const reserveCount = items.filter(isReserve).length;
   const activeCount = total - reserveCount;
 
-  // Only count wear entries for items that are still visible (not
-  // soft-deleted/purged) — a soft-deleted item keeps its wearlog intact so
-  // it can be restored, but it shouldn't contribute to these stats while
-  // sitting in Deleted items.
-  const visibleIds = new Set(items.map(i => i.id));
-  const visibleWearlogValues = Object.keys(wearlog)
-    .filter(id => visibleIds.has(id))
-    .map(id => wearlog[id]);
-
   const thisWeekStart = startOfWeekISO(0);
-  const weekCount = visibleWearlogValues.filter(dates =>
+  const weekCount = Object.values(wearlog).filter(dates =>
     dates.length && dates[dates.length - 1] >= thisWeekStart
   ).length;
 
   const lastWeekStart = startOfWeekISO(-1);
-  const lastWeekCount = visibleWearlogValues.filter(dates =>
+  const lastWeekCount = Object.values(wearlog).filter(dates =>
     dates.some(d => d >= lastWeekStart && d < thisWeekStart)
-  ).length;
-
-  const thisMonthStart = startOfMonthISO(0);
-  const monthCount = visibleWearlogValues.filter(dates =>
-    dates.length && dates[dates.length - 1] >= thisMonthStart
-  ).length;
-
-  const lastMonthStart = startOfMonthISO(-1);
-  const lastMonthCount = visibleWearlogValues.filter(dates =>
-    dates.some(d => d >= lastMonthStart && d < thisMonthStart)
   ).length;
 
   const stats = [
     {n: total, l:'Total items'},
     {n: activeCount, l:'Active rotation'},
     {n: reserveCount, l:'In reserve'},
-    {n: weekCount, sub: lastWeekCount, l:'Worn this week (last week)'},
-    {n: monthCount, sub: lastMonthCount, l:'Worn this month (last month)'}
+    {n: weekCount, l:'Worn this week'},
+    {n: lastWeekCount, l:'Worn last week'}
   ];
   document.getElementById('stats').innerHTML = stats.map(s =>
-    `<div class="stat"><div class="n">${s.n}${s.sub !== undefined ? ` <span class="n-sub">(${s.sub})</span>` : ''}</div><div class="l">${s.l}</div></div>`
+    `<div class="stat"><div class="n">${s.n}</div><div class="l">${s.l}</div></div>`
   ).join('');
 }
 
@@ -1383,17 +1030,8 @@ function matchesFilters(item){
   const q = document.getElementById('search').value.trim().toLowerCase();
   const color = document.getElementById('filterColor').value;
   const brand = document.getElementById('filterBrand').value;
-  const purchaseYear = document.getElementById('filterPurchaseYear').value;
   if (color && item.color !== color) return false;
   if (brand && item.brand !== brand) return false;
-  if (purchaseYear){
-    const pd = purchasedDates[item.id];
-    if (purchaseYear === 'unlogged'){
-      if (pd) return false;
-    } else {
-      if (!pd || !pd.startsWith(purchaseYear)) return false;
-    }
-  }
   if (q){
     const hay = `${item.brand} ${item.type} ${item.color} ${item.material} ${item.code}`.toLowerCase();
     if (!hay.includes(q)) return false;
@@ -1439,10 +1077,6 @@ function editFormHTML(item){
           <input type="text" id="edit-material-${item.id}" value="${escapeAttr(item.material)}"></div>
         <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Item code</label>
           <input type="text" id="edit-code-${item.id}" value="${escapeAttr(item.code)}"></div>
-        <div><label style="font-size:11px;color:var(--muted);">Purchased (month/year)</label>
-          <input type="month" id="edit-purchased-${item.id}" value="${escapeAttr(purchasedDates[item.id] || '')}"></div>
-        <div style="grid-column:1/-1;"><label style="font-size:11px;color:var(--muted);">Notes</label>
-          <textarea id="edit-notes-${item.id}" rows="2" style="width:100%;font-family:'Inter',sans-serif;font-size:12px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--paper);color:var(--ink);resize:vertical;">${escapeHTML(itemNotes[item.id] || '')}</textarea></div>
         <div style="grid-column:1/-1;">
           <label style="font-size:11px;color:var(--muted);">Photo (optional)</label>
           <input type="file" accept="image/*" id="edit-photo-input-${item.id}">
@@ -1492,10 +1126,6 @@ function cardHTML(item){
     ? `<button class="btn primary" data-action="activate" data-id="${item.id}">Activate</button>`
     : `<button class="btn primary" data-action="wear" data-id="${item.id}" ${wornToday ? 'disabled' : ''}>${wornToday ? 'Worn today' : 'Mark worn'}</button>`;
 
-  const returnToReserveBtn = (item.isNew && !isReserve(item) && count === 0)
-    ? `<button class="btn small" data-action="deactivate" data-id="${item.id}" title="Move back to Reserve">Return to reserve</button>`
-    : '';
-
   const undoBtn = count
     ? `<button class="btn small" data-action="undo" data-id="${item.id}">Undo last</button>`
     : '';
@@ -1514,10 +1144,10 @@ function cardHTML(item){
            <div class="history-dates">${chips}</div>
          </details>`
       : `<p class="meta" style="padding-left:6px;margin:0;">Worn 0 times</p>`}
-    ${currentTab === 'active' ? `<div class="backdate-row">
+    <div class="backdate-row">
       <input type="date" id="backdate-${item.id}" max="${todayISO()}">
       <button class="btn small" data-action="log-date" data-id="${item.id}">Log this date</button>
-    </div>` : ''}`;
+    </div>`;
 
   return `
   <div class="card" style="--tagcolor:${hex}; background: color-mix(in srgb, ${hex} 14%, var(--paper));">
@@ -1529,45 +1159,14 @@ function cardHTML(item){
       </div>
     </div>
     <div class="meta">${escapeHTML(item.material)}${item.code ? ' &middot; <code class="tagcode">' + escapeHTML(item.code) + '</code>' : ''}</div>
-    ${purchasedDates[item.id] ? `<div class="meta" style="padding-left:6px;">Purchased ${formatMonthYear(purchasedDates[item.id])}</div>` : ''}
-    ${itemNotes[item.id] ? `<div class="item-note">${escapeHTML(itemNotes[item.id])}</div>` : ''}
     ${historyBlock}
     <div class="status-row">
       ${statusPill}
       <div class="btn-row">
         ${wearBtn}
         ${undoBtn}
-        ${returnToReserveBtn}
         ${editBtn}
         ${deleteBtn}
-      </div>
-    </div>
-  </div>`;
-}
-
-// Card shown in the "Deleted items" tab. Deliberately minimal — no Mark
-// worn / Edit / Undo, since a soft-deleted item shouldn't be actively used.
-// Just enough info to recognize the item, plus Restore and Delete
-// permanently.
-function deletedCardHTML(item){
-  const hex = displayHex(item);
-  const count = (wearlog[item.id] || []).length;
-  return `
-  <div class="card" style="--tagcolor:${hex}; background: color-mix(in srgb, ${hex} 14%, var(--paper)); opacity:0.85;">
-    <div class="card-top">
-      ${item.photo ? `<img src="${item.photo}" class="thumb" alt="">` : `<span class="swatch" style="background:${hex}"></span>`}
-      <div class="titles">
-        <div class="brand">${escapeHTML(item.brand)}</div>
-        <div class="name">${escapeHTML(item.color)} ${escapeHTML(item.type)}</div>
-      </div>
-    </div>
-    <div class="meta">${escapeHTML(item.material)}${item.code ? ' &middot; <code class="tagcode">' + escapeHTML(item.code) + '</code>' : ''}</div>
-    <p class="meta" style="padding-left:6px;margin:0;">Worn ${count} time${count === 1 ? '' : 's'} &middot; history preserved until permanently deleted</p>
-    <div class="status-row">
-      <span class="pill overdue">Deleted</span>
-      <div class="btn-row">
-        <button class="btn primary" data-action="restore" data-id="${item.id}">Restore</button>
-        <button class="btn ghost small" data-action="delete-permanently" data-id="${item.id}" title="Permanently delete" aria-label="Permanently delete">Delete permanently</button>
       </div>
     </div>
   </div>`;
@@ -1576,21 +1175,14 @@ function deletedCardHTML(item){
 function render(){
   renderStats();
 
-  const items = currentTab === 'deleted' ? getDeletedItems() : getAllItems();
-  const pool = currentTab === 'reserve' ? items.filter(isReserve)
-    : currentTab === 'all' ? items
-    : currentTab === 'deleted' ? items
-    : items.filter(i => !isReserve(i));
+  const items = getAllItems();
+  const pool = items.filter(i => currentTab === 'reserve' ? isReserve(i) : !isReserve(i));
   const filtered = pool.filter(matchesFilters);
 
   const lastWorn = (id) => { const d = wearlog[id]; return d && d.length ? d[d.length - 1] : null; };
   const wearCount = (id) => (wearlog[id] || []).length;
 
-  if (currentTab === 'deleted'){
-    filtered.sort((a, b) => `${a.brand} ${a.type}`.localeCompare(`${b.brand} ${b.type}`));
-    document.getElementById('sortlinetext').textContent =
-      'Soft-deleted items — restore them or permanently delete them below. Wear history is kept until you choose "Delete permanently."';
-  } else if (currentTab === 'active' || currentTab === 'all'){
+  if (currentTab === 'active'){
     if (sortMode === 'most-worn'){
       filtered.sort((a,b) => wearCount(b.id) - wearCount(a.id));
       document.getElementById('sortlinetext').textContent = 'Sorted by most worn first.';
@@ -1606,24 +1198,6 @@ function render(){
         return daysSince(la) - daysSince(lb);
       });
       document.getElementById('sortlinetext').textContent = 'Sorted by most recently worn first.';
-    } else if (sortMode === 'purchased-newest'){
-      filtered.sort((a,b) => {
-        const pa = purchasedDates[a.id], pb = purchasedDates[b.id];
-        if (!pa && !pb) return 0;
-        if (!pa) return 1;
-        if (!pb) return -1;
-        return pb.localeCompare(pa);
-      });
-      document.getElementById('sortlinetext').textContent = 'Sorted by most recently purchased first.';
-    } else if (sortMode === 'purchased-oldest'){
-      filtered.sort((a,b) => {
-        const pa = purchasedDates[a.id], pb = purchasedDates[b.id];
-        if (!pa && !pb) return 0;
-        if (!pa) return 1;
-        if (!pb) return -1;
-        return pa.localeCompare(pb);
-      });
-      document.getElementById('sortlinetext').textContent = 'Sorted by oldest purchased first.';
     } else {
       filtered.sort((a,b) => {
         const la = lastWorn(a.id), lb = lastWorn(b.id);
@@ -1640,15 +1214,12 @@ function render(){
 
   const grid = document.getElementById('grid');
   const empty = document.getElementById('empty');
-  const bulkPurgeRow = document.getElementById('bulkPurgeRow');
-  if (bulkPurgeRow) bulkPurgeRow.style.display = (currentTab === 'deleted' && filtered.length > 0) ? 'flex' : 'none';
   if (filtered.length === 0){
     grid.innerHTML = '';
     empty.style.display = 'block';
-    empty.textContent = currentTab === 'deleted' ? 'Deleted items is empty.' : 'No items match this filter.';
   } else {
     empty.style.display = 'none';
-    grid.innerHTML = filtered.map(currentTab === 'deleted' ? deletedCardHTML : cardHTML).join('');
+    grid.innerHTML = filtered.map(cardHTML).join('');
   }
 }
 
@@ -1656,8 +1227,6 @@ function setTab(tab){
   currentTab = tab;
   document.getElementById('tab-active').classList.toggle('active', tab === 'active');
   document.getElementById('tab-reserve').classList.toggle('active', tab === 'reserve');
-  document.getElementById('tab-all').classList.toggle('active', tab === 'all');
-  document.getElementById('tab-deleted').classList.toggle('active', tab === 'deleted');
   render();
 }
 
@@ -1672,16 +1241,12 @@ document.addEventListener('click', async (e) => {
     if (!wearlog[id]) wearlog[id] = [];
     if (wearlog[id][wearlog[id].length - 1] !== today){
       wearlog[id].push(today);
-      await untombstoneWearDate(id, today);
       await saveWearlog();
       render();
     }
   } else if (action === 'undo'){
     if (wearlog[id] && wearlog[id].length){
       const removed = wearlog[id].pop();
-      if (!tombstones.wearlogDates[id]) tombstones.wearlogDates[id] = [];
-      if (!tombstones.wearlogDates[id].includes(removed)) tombstones.wearlogDates[id].push(removed);
-      await saveTombstones();
       await saveWearlog();
       render();
     }
@@ -1694,7 +1259,6 @@ document.addEventListener('click', async (e) => {
     if (wearlog[id].includes(val)){ alert('That date is already logged for this item.'); return; }
     wearlog[id].push(val);
     wearlog[id].sort();
-    await untombstoneWearDate(id, val);
     await saveWearlog();
     render();
   } else if (action === 'remove-date'){
@@ -1702,40 +1266,10 @@ document.addEventListener('click', async (e) => {
     if (!wearlog[id]) return;
     if (!confirm(`Remove ${formatDate(date)} from this item's wear history?`)) return;
     wearlog[id] = wearlog[id].filter(d => d !== date);
-    if (!tombstones.wearlogDates[id]) tombstones.wearlogDates[id] = [];
-    if (!tombstones.wearlogDates[id].includes(date)) tombstones.wearlogDates[id].push(date);
-    await saveTombstones();
     await saveWearlog();
     render();
   } else if (action === 'activate'){
     activated[id] = true;
-    // Re-activating un-does any earlier "return to reserve" for this id —
-    // clear its tombstone so a stale remote copy can't fight this change,
-    // and so the tombstone doesn't linger with stale meaning.
-    if (tombstones.activated[id]){
-      delete tombstones.activated[id];
-      await saveTombstones();
-    }
-    await saveActivated();
-    render();
-  } else if (action === 'deactivate'){
-    // Guarded here too, not just by hiding the button — the button is only
-    // ever rendered when wear count is 0, but this is a second, independent
-    // check so this action can never fire against an item with wear
-    // history, regardless of how it's triggered.
-    if (wearlog[id] && wearlog[id].length > 0){
-      alert('This item has wear history logged, so it can\'t be returned to Reserve. Delete its wear history first if you really want to move it back.');
-      return;
-    }
-    // Move an item back to Reserve. `activated` is normally an additive-only
-    // map (mergeObjectAdditive), so just deleting the key here isn't enough
-    // on its own — the very next save's reconcile-before-push step would
-    // pull `activated[id]: true` right back in from Supabase (same class of
-    // bug as the wear-date Undo issue), making this look like it silently
-    // failed. Tombstone the id first so the merge knows not to resurrect it.
-    delete activated[id];
-    tombstones.activated[id] = true;
-    await saveTombstones();
     await saveActivated();
     render();
   } else if (action === 'edit'){
@@ -1768,82 +1302,26 @@ document.addEventListener('click', async (e) => {
     const material = document.getElementById(`edit-material-${id}`).value.trim();
     const code = document.getElementById(`edit-code-${id}`).value.trim();
     const photo = document.getElementById(`edit-photo-${id}`).value;
-    const purchased = document.getElementById(`edit-purchased-${id}`).value; // "YYYY-MM" or ""
-    const notes = document.getElementById(`edit-notes-${id}`).value.trim();
     if (!brand || !type || !color){
       alert('Brand, type, and color can\'t be empty.');
       return;
     }
     overrides[id] = { brand, type, color, swatchColor, material: material || 'Unspecified', code, photo };
-    let tombstonesChanged = false;
-    if (purchased) { purchasedDates[id] = purchased; }
-    else if (id in purchasedDates || tombstones.purchasedDates[id] !== true) {
-      delete purchasedDates[id];
-      tombstones.purchasedDates[id] = true;
-      tombstonesChanged = true;
-    }
-    if (notes) { itemNotes[id] = notes; }
-    else if (id in itemNotes || tombstones.itemNotes[id] !== true) {
-      delete itemNotes[id];
-      tombstones.itemNotes[id] = true;
-      tombstonesChanged = true;
-    }
-    if (tombstonesChanged) await saveTombstones();
-    await Promise.all([saveOverrides(), savePurchasedDates(), saveItemNotes()]);
+    await saveOverrides();
     editingId = null;
     populateFilters();
     render();
   } else if (action === 'delete'){
-    // Soft delete only — moves the item to "Deleted items" without touching
-    // its wearlog/overrides/purchase date/notes, so it can be fully
-    // restored later. Nothing is actually erased until the user explicitly
-    // chooses "Delete permanently" from the Deleted items tab.
     const items = getAllItems();
     const item = items.find(i => i.id === id);
     const label = item ? `${item.brand} ${item.color} ${item.type}` : 'this item';
-    if (!confirm(`Move ${label} to Deleted items? It'll be hidden from your active inventory, but you can restore it — or permanently delete it — from the "Deleted items" tab.`)) return;
+    if (!confirm(`Delete ${label} from your inventory? Its wear history will also be removed. This can't be undone.`)) return;
     deletedIds[id] = true;
-    // Un-does any earlier "Restore" for this id, and prevents a stale
-    // remote copy from fighting this delete on the next merge-before-write.
-    if (tombstones.deletedIds[id]){
-      delete tombstones.deletedIds[id];
-    }
+    delete wearlog[id];
+    delete activated[id];
+    delete overrides[id];
     if (editingId === id) editingId = null;
-    await saveDeletedIds();
-    populateFilters();
-    render();
-  } else if (action === 'restore'){
-    // Un-delete: bring the item back to Active/Reserve exactly as it was.
-    // `deletedIds` is additive-only (mergeDeletedIds), so deleting the key
-    // here isn't enough by itself — the next save's reconcile-before-push
-    // step would otherwise pull `deletedIds[id]: true` right back in from
-    // Supabase. Tombstone the id first so the merge knows not to
-    // resurrect it (same pattern as "Return to reserve").
-    delete deletedIds[id];
-    tombstones.deletedIds[id] = true;
-    await saveTombstones();
-    await saveDeletedIds();
-    populateFilters();
-    render();
-  } else if (action === 'delete-permanently'){
-    const items = getDeletedItems();
-    const item = items.find(i => i.id === id);
-    const label = item ? `${item.brand} ${item.color} ${item.type}` : 'this item';
-    const wearCountForItem = (wearlog[id] || []).length;
-    const warn = wearCountForItem
-      ? ` It has ${wearCountForItem} logged wear${wearCountForItem === 1 ? '' : 's'} that will be erased along with it.`
-      : '';
-    if (!confirm(`Permanently delete ${label}?${warn} This cannot be undone.`)) return;
-    await purgeItemPermanently(id);
-    populateFilters();
-    render();
-  } else if (action === 'purge-all'){
-    const items = getDeletedItems().filter(matchesFilters);
-    if (items.length === 0) return;
-    if (!confirm(`Permanently delete all ${items.length} item(s) currently shown in Deleted items? Any wear history on them will be erased. This cannot be undone.`)) return;
-    for (const item of items){
-      await purgeItemPermanently(item.id);
-    }
+    await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides()]);
     populateFilters();
     render();
   }
@@ -1885,12 +1363,9 @@ document.addEventListener('change', async (e) => {
 
 document.getElementById('tab-active').addEventListener('click', () => setTab('active'));
 document.getElementById('tab-reserve').addEventListener('click', () => setTab('reserve'));
-document.getElementById('tab-all').addEventListener('click', () => setTab('all'));
-document.getElementById('tab-deleted').addEventListener('click', () => setTab('deleted'));
 document.getElementById('search').addEventListener('input', render);
 document.getElementById('filterColor').addEventListener('change', render);
 document.getElementById('filterBrand').addEventListener('change', render);
-document.getElementById('filterPurchaseYear').addEventListener('change', render);
 document.getElementById('sortMode').addEventListener('change', (e) => {
   sortMode = e.target.value;
   render();
@@ -1922,7 +1397,7 @@ document.getElementById('cancelAddBtn').addEventListener('click', () => {
   clearAddForm();
 });
 function clearAddForm(){
-  ['f-brand','f-type','f-color','f-swatch-color','f-material','f-code','f-photo','f-purchased','f-notes'].forEach(id => document.getElementById(id).value = '');
+  ['f-brand','f-type','f-color','f-swatch-color','f-material','f-code','f-photo'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('f-isnew').checked = false;
   document.getElementById('f-remove-bg').checked = true;
   document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
@@ -1937,8 +1412,6 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
   const material = document.getElementById('f-material').value.trim();
   const code = document.getElementById('f-code').value.trim();
   const photo = document.getElementById('f-photo').value;
-  const purchased = document.getElementById('f-purchased').value; // "YYYY-MM" or ""
-  const notes = document.getElementById('f-notes').value.trim();
   const isNew = document.getElementById('f-isnew').checked;
 
   if (!brand || !type || !color){
@@ -1948,58 +1421,42 @@ document.getElementById('saveItemBtn').addEventListener('click', async () => {
 
   const id = 'custom' + Date.now() + Math.floor(Math.random() * 1000);
   customItems.push({ id, brand, type, material: material || 'Unspecified', color, swatchColor, code, photo, isNew });
-  if (purchased) purchasedDates[id] = purchased;
-  if (notes) itemNotes[id] = notes;
-  await Promise.all([saveCustomItems(), savePurchasedDates(), saveItemNotes()]);
+  await saveCustomItems();
   clearAddForm();
   addPanel.classList.remove('open');
   populateFilters();
   render();
 });
 
+function scheduleLoadRetry(attempt){
+  attempt = attempt || 1;
+  if (attempt > 3) return;
+  setTimeout(async () => {
+    try {
+      await withTimeout(loadState(), 15000);
+      populateFilters();
+      updateStorageNote();
+      render();
+    } catch(e){
+      scheduleLoadRetry(attempt + 1);
+    }
+  }, attempt * 3000);
+}
+
 (async function init(){
   try {
     document.getElementById('todayline').textContent =
       new Date().toLocaleDateString(undefined, { weekday:'long', year:'numeric', month:'long', day:'numeric' });
     document.getElementById('f-color-picker').innerHTML = swatchPickerHTML('f-swatch-color', '');
-    let loadTimedOut = false;
     try {
-      // 15s (not 3s) because the load now fires all fetches in parallel, so
-      // this only needs to cover the single slowest fetch plus overhead, not
-      // seven stacked round-trips. A cold mobile connection can genuinely
-      // take several seconds for the first request; cutting it off at 3s was
-      // the main reason the first load so often fell back to stale data.
       await withTimeout(loadState(), 15000);
     } catch(e){
-      loadTimedOut = true;
-      // Do NOT wipe to empty here. Render whatever we've got (likely the
-      // local cache) so the app is usable, but remember that we did NOT get
-      // a confirmed-fresh load, and retry in the background below.
+      wearlog = {}; activated = {}; customItems = []; deletedIds = {}; overrides = {}; storageMode = 'memory';
+      scheduleLoadRetry();
     }
     populateFilters();
     updateStorageNote();
     render();
-
-    if (loadTimedOut){
-      // Self-correcting retry: the first attempt didn't confirm fresh data
-      // within the window, so try again in the background (no timeout this
-      // time) and re-render if/when the real data arrives. This is what
-      // makes the stale-first-load fix itself instead of requiring you to
-      // manually refresh one or more times.
-      (async function backgroundRetry(){
-        for (let attempt = 0; attempt < 3; attempt++){
-          try {
-            await loadState();
-            populateFilters();
-            updateStorageNote();
-            render();
-            return;
-          } catch(e){
-            await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-          }
-        }
-      })();
-    }
   } catch(err){
     document.getElementById('todayline').textContent = 'Something went wrong loading this tracker.';
     document.getElementById('stats').innerHTML =
