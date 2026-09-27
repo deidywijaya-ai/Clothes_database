@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260920140000">
+<meta name="app-version" content="20260926153000">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -746,8 +746,9 @@ function withTimeout(promise, ms){
 }
 
 async function supabaseGet(key){
-  const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}&select=value`;
+  const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?key=eq.${encodeURIComponent(key)}&select=value&_cb=${Date.now()}`;
   const resp = await withTimeout(fetch(url, {
+    cache: 'no-store',
     headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` }
   }), 4000);
   if (!resp.ok) throw new Error('supabase get ' + resp.status);
@@ -759,6 +760,7 @@ async function supabaseSet(key, value){
   const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?on_conflict=key`;
   const resp = await withTimeout(fetch(url, {
     method: 'POST',
+    cache: 'no-store',
     headers: {
       apikey: SUPABASE_KEY,
       Authorization: `Bearer ${SUPABASE_KEY}`,
@@ -777,9 +779,27 @@ async function storageGet(key){
       storageMode = 'supabase';
       let localV = null;
       try { localV = localStorage.getItem('wardrobe:' + key); } catch(e){}
+      let isPending = false;
+      try { isPending = localStorage.getItem('wardrobe:pending:' + key) === '1'; } catch(e){}
 
       if (v != null){
-        // Supabase has data — it's the source of truth. Refresh the local cache.
+        if (isPending && localV){
+          // This device has local changes from a save whose reconciliation
+          // fetch failed earlier (e.g. a weak connection) and were never
+          // actually pushed. A plain "remote is truth" overwrite here would
+          // silently erase them the moment connectivity comes back — which
+          // is exactly what was happening. Merge first, and try to flush
+          // the merge up to Supabase so the pending flag can finally clear.
+          const merged = mergeStorageValues(key, localV, v);
+          try {
+            await supabaseSet(key, merged);
+            try { localStorage.removeItem('wardrobe:pending:' + key); } catch(e){}
+          } catch(e){ /* still couldn't push — stays pending, try again next time */ }
+          try { localStorage.setItem('wardrobe:' + key, merged); } catch(e){}
+          return merged;
+        }
+        // Supabase has data and there's nothing local pending — it's the
+        // source of truth. Refresh the local cache.
         try { localStorage.setItem('wardrobe:' + key, v); } catch(e){}
         return v;
       }
