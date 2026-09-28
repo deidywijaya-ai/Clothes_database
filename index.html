@@ -7,7 +7,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<meta name="app-version" content="20260928090000">
+<meta name="app-version" content="20260928140000">
 <script>
 // GitHub Pages serves through a CDN whose edge nodes only refresh their
 // cached copy the NEXT time a request reaches them after a deploy. That
@@ -862,7 +862,7 @@ function mergeStorageValues(key, localStr, remoteStr){
   return JSON.stringify({ ...remote, ...local });
 }
 
-async function storageSet(key, value){
+async function storageSet(key, value, opts){
   let supabaseOk = false;
   if (SUPABASE_URL && SUPABASE_KEY){
     let toPush = value;
@@ -870,6 +870,12 @@ async function storageSet(key, value){
     try {
       const remoteStr = await supabaseGet(key);
       toPush = mergeStorageValues(key, value, remoteStr);
+      // Removals (undo, remove a date, delete, clear) must be applied AFTER
+      // the union-merge, otherwise the merge re-adds whatever the server
+      // still has and the removal never sticks.
+      if (opts && typeof opts.transform === 'function'){
+        toPush = JSON.stringify(opts.transform(JSON.parse(toPush)));
+      }
     } catch(reconcileErr){
       reconciled = false;
     }
@@ -933,7 +939,7 @@ async function loadState(){
   overrides = ov ? JSON.parse(ov) : {};
 }
 
-async function saveWearlog(){ await storageSet('wearlog', JSON.stringify(wearlog)); }
+async function saveWearlog(transform){ await storageSet('wearlog', JSON.stringify(wearlog), transform ? { transform } : undefined); }
 async function saveActivated(){ await storageSet('activated', JSON.stringify(activated)); }
 async function saveCustomItems(){ await storageSet('customItems', JSON.stringify(customItems)); }
 async function saveDeletedIds(){ await storageSet('deletedIds', JSON.stringify(deletedIds)); }
@@ -1288,7 +1294,7 @@ document.addEventListener('click', async (e) => {
   } else if (action === 'undo'){
     if (wearlog[id] && wearlog[id].length){
       const removed = wearlog[id].pop();
-      await saveWearlog();
+      await saveWearlog(o => { if (o[id]) o[id] = o[id].filter(d => d !== removed); return o; });
       render();
     }
   } else if (action === 'log-date'){
@@ -1307,7 +1313,7 @@ document.addEventListener('click', async (e) => {
     if (!wearlog[id]) return;
     if (!confirm(`Remove ${formatDate(date)} from this item's wear history?`)) return;
     wearlog[id] = wearlog[id].filter(d => d !== date);
-    await saveWearlog();
+    await saveWearlog(o => { if (o[id]) o[id] = o[id].filter(d => d !== date); return o; });
     render();
   } else if (action === 'activate'){
     activated[id] = true;
@@ -1362,7 +1368,7 @@ document.addEventListener('click', async (e) => {
     delete activated[id];
     delete overrides[id];
     if (editingId === id) editingId = null;
-    await Promise.all([saveDeletedIds(), saveWearlog(), saveActivated(), saveOverrides()]);
+    await Promise.all([saveDeletedIds(), saveWearlog(o => { delete o[id]; return o; }), saveActivated(), saveOverrides()]);
     populateFilters();
     render();
   }
@@ -1414,7 +1420,7 @@ document.getElementById('sortMode').addEventListener('change', (e) => {
 document.getElementById('resetBtn').addEventListener('click', async () => {
   if (!confirm('Clear all logged wear dates? This cannot be undone.')) return;
   wearlog = {};
-  await saveWearlog();
+  await saveWearlog(() => ({}));
   render();
 });
 
